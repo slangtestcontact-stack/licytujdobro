@@ -1,0 +1,16 @@
+PATCH: e-mail tylko dla rejestracji hasłem; OAuth bez dodatkowej weryfikacji
+
+1. Skopiuj katalog src z tego patcha do katalogu projektu i zaakceptuj nadpisanie plików.
+2. W .env.local ustaw:
+
+CONTACT_VERIFICATION_MODE=email
+
+3. Uruchom ponownie aplikację:
+
+npm run dev
+
+Zachowanie:
+- konto password: musi wpisać kod z e-maila;
+- konto email_code: kod logowania już potwierdza e-mail, bez kolejnej weryfikacji;
+- Facebook / Google / Apple: bez dodatkowego kodu e-mail i bez SMS;
+- numer telefonu może pozostać zapisany jako kontaktowy, ale nie blokuje licytacji.

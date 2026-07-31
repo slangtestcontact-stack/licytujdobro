@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" role="img" aria-labelledby="title desc">
+  <title id="title">Brak zdjęcia przedmiotu</title><desc id="desc">Neutralne miejsce na zdjęcie przedmiotu.</desc>
+  <rect width="800" height="600" fill="#f1f5f3"/><rect x="210" y="150" width="380" height="300" rx="24" fill="#ffffff" stroke="#d9e4df" stroke-width="6"/>
+  <path d="M280 375l90-90 65 65 45-45 70 70" fill="none" stroke="#6d8f84" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="465" cy="245" r="28" fill="#b9cec6"/><text x="400" y="515" text-anchor="middle" font-family="Arial,sans-serif" font-size="28" fill="#536761">Dodaj zdjęcie przedmiotu</text>
+</svg>

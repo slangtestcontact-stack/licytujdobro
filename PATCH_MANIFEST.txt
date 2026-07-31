@@ -1,0 +1,30 @@
+LicytujDobro 1.7.0 — manifest zmian
+
+Nowe pliki:
+- src/actions/fixed-donation.ts
+- src/components/fixed-donation-panel.tsx
+- scripts/migrate-1.7.mjs
+
+Główne zmienione pliki:
+- src/actions/admin.ts
+- src/actions/bidding.ts
+- src/actions/listings.ts
+- src/app/api/auctions/[id]/live/route.ts
+- src/app/aukcje/[id]/page.tsx
+- src/app/aukcje/page.tsx
+- src/app/druzyny/[slug]/page.tsx
+- src/app/page.tsx
+- src/app/prawne/regulamin/page.tsx
+- src/app/prawne/zasady-licytacji/page.tsx
+- src/app/transakcje/[id]/page.tsx
+- src/components/auction-card.tsx
+- src/components/bidding.tsx
+- src/components/listing-wizard.tsx
+- src/components/process-steps.tsx
+- src/components/shell.tsx
+- src/db/schema.ts
+- src/lib/config.ts
+- src/lib/end-auction.ts
+- src/lib/public-data.ts
+- src/lib/__tests__/core-rules.test.ts
+- src/lib/__tests__/mvp-rules.test.ts

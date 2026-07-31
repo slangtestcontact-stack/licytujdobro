@@ -1,0 +1,16 @@
+@'
+
+# Zależności i build
+node_modules/
+.next/
+
+# Sekrety
+.env
+.env.*
+!.env.example
+
+# Lokalne pliki
+*.log
+.patch-backup-*/
+licytujdobro-*-patch*/
+'@ | Add-Content .gitignore

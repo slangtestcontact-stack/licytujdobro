@@ -1,0 +1,2 @@
+"use client";import { useEffect } from "react";import { Alert,Button } from "@/components/ui";
+export default function ErrorPage({error,reset}:{error:Error&{digest?:string};reset:()=>void}){useEffect(()=>console.error(error),[error]);return <main className="mx-auto max-w-xl px-4 py-20"><Alert tone="danger" title="Nie udało się wczytać strony">Spróbuj ponownie. Jeśli problem wraca, zachowaj identyfikator błędu: {error.digest??"brak"}.</Alert><Button className="mt-5" onClick={reset}>Spróbuj ponownie</Button></main>}

@@ -1,0 +1,26 @@
+--- /mnt/data/licytujdobro_proj/licytujdobro-adas-v1.4/src/app/page.tsx	2026-07-29 12:07:33.000000000 +0000
++++ /mnt/data/licytujdobro-photo-only-patch/src/app/page.tsx	2026-07-29 17:45:47.162666212 +0000
+@@ -19,7 +19,6 @@
+   ArrowRightIcon,
+   HandHeartIcon,
+   HeartIcon,
+-  MapPinIcon,
+   ShareIcon,
+   ShieldIcon,
+   TrophyIcon,
+@@ -127,15 +126,6 @@
+                 sizes="(max-width: 1024px) 100vw, 48vw"
+                 className="object-cover"
+               />
+-              <div className="absolute inset-x-4 bottom-4 rounded-2xl border border-white/70 bg-white/94 p-4 shadow-lg backdrop-blur-sm">
+-                <p className="text-xs font-bold uppercase tracking-[.12em] text-brand-700">{ADAS_CAMPAIGN.fullName}</p>
+-                <p className="mt-1 text-sm font-semibold text-ink">{ADAS_CAMPAIGN.diagnosis}</p>
+-                <p className="mt-1 inline-flex items-center gap-1.5 text-xs text-slate-600"><MapPinIcon size={14}/>{ADAS_CAMPAIGN.locationLabel}</p>
+-              </div>
+-            </div>
+-            <div className="absolute -bottom-7 -left-3 max-w-[270px] rounded-2xl border border-brand-200 bg-white p-4 shadow-[0_12px_35px_rgba(16,40,32,.12)] sm:left-6">
+-              <p className="text-xs font-bold uppercase tracking-[.1em] text-brand-700">Cel oficjalnej zbiórki</p>
+-              <p className="mt-2 text-sm leading-6 text-slate-700">{ADAS_CAMPAIGN.collectionPurpose}</p>
+             </div>
+           </div>
+         </div>

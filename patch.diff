@@ -1,0 +1,2617 @@
+diff --git a/.env.example b/.env.example
+index 724743e..1af9f92 100644
+--- a/.env.example
++++ b/.env.example
+@@ -14,11 +14,6 @@ ADMIN_PASSWORD=ChangeMe-Strong-Password-123!
+ ADMIN_FIRST_NAME=Administrator
+ ADMIN_NICKNAME=Administrator
+ 
+-SMS_MODE=dev
+-SMS_PROVIDER_API_KEY=
+-EMAIL_MODE=dev
+-EMAIL_PROVIDER_API_KEY=
+-
+ # Szybkie logowanie OAuth (opcjonalne lokalnie; wymagane na produkcji dla przycisków Google/Facebook/Apple)
+ GOOGLE_CLIENT_ID=
+ GOOGLE_CLIENT_SECRET=
+@@ -32,15 +27,25 @@ APPLE_PRIVATE_KEY=
+ OAUTH_STATE_SECRET=change-me-oauth-state-secret-at-least-32-characters
+ EMAIL_LOGIN_SECRET=change-me-email-login-secret-at-least-32-characters
+ 
++# Wymagany kontakt przed licytacją/wystawieniem:
++# both = e-mail i telefon, either = e-mail albo telefon, email = tylko e-mail, phone = tylko telefon
++CONTACT_VERIFICATION_MODE=both
++
+ # Produkcyjna wysyłka. W trybie dev wiadomości są wypisywane w konsoli.
++# E-mail: dev (kody w terminalu), resend albo http
+ EMAIL_PROVIDER=dev
+ EMAIL_API_URL=
+ EMAIL_API_KEY=
+ EMAIL_FROM=LicytujDobro <powiadomienia@example.pl>
++
++# SMS: dev (kody w terminalu), twilio albo http
+ SMS_PROVIDER=dev
+ SMS_API_URL=
+ SMS_API_KEY=
+ SMS_FROM=LicytujDobro
++TWILIO_ACCOUNT_SID=
++TWILIO_AUTH_TOKEN=
++TWILIO_FROM=
+ 
+ # Organizator i kontakt publiczny
+ ORGANIZER_NAME=LicytujDobro - lokalna inicjatywa społeczna
+diff --git a/INSTRUKCJA_WERYFIKACJI_KONTAKTU.md b/INSTRUKCJA_WERYFIKACJI_KONTAKTU.md
+new file mode 100644
+index 0000000..48b6095
+--- /dev/null
++++ b/INSTRUKCJA_WERYFIKACJI_KONTAKTU.md
+@@ -0,0 +1,170 @@
++# Patch: Facebook bez e-maila + weryfikacja dopiero przed licytacją
++
++## Co zmienia patch
++
++1. Facebook może utworzyć konto nawet wtedy, gdy Graph API zwróci tylko `id` i imię.
++2. Użytkownik po logowaniu trafia na stronę, którą chciał otworzyć, i może normalnie przeglądać serwis.
++3. Dopiero pierwsza próba licytacji albo wystawienia przedmiotu prowadzi do `/weryfikacja`.
++4. Na ekranie weryfikacji użytkownik podaje prawdziwy e-mail i/lub telefon, dostaje sześciocyfrowy kod i wraca do rozpoczętej oferty.
++5. Techniczne wartości `@users.invalid` i `pending-...` nie są używane do wysyłki powiadomień.
++6. Patch nie wymaga migracji bazy danych.
++
++## Wybór wymagania
++
++Dodaj do `.env`:
++
++```env
++# both = e-mail i telefon
++# either = e-mail albo telefon, wybór użytkownika
++# email = tylko e-mail
++# phone = tylko telefon
++CONTACT_VERIFICATION_MODE=both
++```
++
++Dla maksymalnie prostego startu ustaw:
++
++```env
++CONTACT_VERIFICATION_MODE=either
++```
++
++Dla większego zabezpieczenia wiążących ofert pozostaw:
++
++```env
++CONTACT_VERIFICATION_MODE=both
++```
++
++## Test lokalny - całkowicie bezpłatny
++
++```env
++EMAIL_PROVIDER=dev
++SMS_PROVIDER=dev
++```
++
++W tym trybie nic nie jest wysyłane do Internetu. Kody są:
++
++- wypisywane w terminalu `npm run dev`;
++- pokazywane na stronie `/weryfikacja`.
++
++Po zmianie `.env` uruchom aplikację ponownie:
++
++```bash
++npm run dev
++```
++
++## Prawdziwy e-mail przez Resend
++
++Kod obsługuje Resend bez dodatkowego pakietu npm.
++
++1. Załóż konto w Resend.
++2. Dodaj domenę, np. `licytujdobro.pl`, i ustaw rekordy DNS pokazane w panelu Resend.
++3. Utwórz klucz API.
++4. Ustaw:
++
++```env
++EMAIL_PROVIDER=resend
++EMAIL_API_KEY=re_TUTAJ_KLUCZ
++EMAIL_FROM=LicytujDobro <kody@licytujdobro.pl>
++```
++
++`EMAIL_API_URL` może pozostać puste - patch użyje `https://api.resend.com/emails`.
++
++Na bezpłatnym planie Resend można obecnie wysyłać do 3000 wiadomości miesięcznie, z limitem 100 dziennie. Przed publikacją sprawdź aktualny cennik dostawcy.
++
++## Prawdziwy SMS przez Twilio
++
++Patch ma bezpośrednią obsługę Twilio REST API.
++
++1. Załóż konto Twilio.
++2. Skopiuj `Account SID` i `Auth Token`.
++3. W trybie próbnym dodaj swój numer jako zweryfikowanego odbiorcę.
++4. Ustaw numer lub identyfikator nadawcy dopuszczony na Twoim koncie.
++5. W `.env` wpisz:
++
++```env
++SMS_PROVIDER=twilio
++TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
++TWILIO_AUTH_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
++TWILIO_FROM=+1xxxxxxxxxx
++```
++
++Po przejściu na konto produkcyjne jako `TWILIO_FROM` możesz użyć właściwego nadawcy dostępnego dla Polski. Nie wpisuj przykładowego numeru - użyj wartości z panelu Twilio.
++
++Twilio oferuje ograniczony okres próbny do testów, lecz produkcyjne SMS-y nie są bezpłatne. Wiadomości do Polski są rozliczane za segment, a stawki mogą się zmieniać.
++
++## Własny operator przez HTTP
++
++Można podłączyć dowolny własny endpoint lub funkcję serverless.
++
++E-mail:
++
++```env
++EMAIL_PROVIDER=http
++EMAIL_API_URL=https://twoj-endpoint.example/api/email
++EMAIL_API_KEY=sekret
++EMAIL_FROM=LicytujDobro <kody@licytujdobro.pl>
++```
++
++Aplikacja wysyła JSON:
++
++```json
++{
++  "from": "LicytujDobro <kody@licytujdobro.pl>",
++  "to": ["uzytkownik@example.pl"],
++  "subject": "Kod weryfikacyjny LicytujDobro",
++  "text": "Twój kod weryfikacyjny: 123456"
++}
++```
++
++SMS:
++
++```env
++SMS_PROVIDER=http
++SMS_API_URL=https://twoj-endpoint.example/api/sms
++SMS_API_KEY=sekret
++SMS_FROM=LicytujDb
++```
++
++Aplikacja wysyła JSON:
++
++```json
++{
++  "to": "+48600700800",
++  "message": "LicytujDobro: Twój kod weryfikacyjny to 123456",
++  "from": "LicytujDb"
++}
++```
++
++Oba endpointy otrzymują nagłówek:
++
++```text
++Authorization: Bearer <klucz API>
++```
++
++## Test działania
++
++1. Zostaw `EMAIL_PROVIDER=dev` i `SMS_PROVIDER=dev`.
++2. Usuń stare testowe konto z bazy albo użyj innego konta Facebook.
++3. Zaloguj się przez Facebooka.
++4. Sprawdź, że trafiasz do `/dashboard` i możesz przeglądać aukcje.
++5. Otwórz aukcję i kliknij licytowanie.
++6. Przejdź do weryfikacji kontaktu.
++7. Podaj dane i użyj kodów pokazanych na stronie.
++8. Po potwierdzeniu ostatniego wymaganego kanału aplikacja powinna wrócić do aukcji z zachowaną kwotą i otworzyć potwierdzenie oferty.
++
++## Polecenia kontrolne
++
++```bash
++npm run typecheck
++npm test
++npm run build
++```
++
++Jeżeli projekt był uruchomiony podczas podmiany plików, zatrzymaj proces i uruchom `npm run dev` ponownie.
++
++## Bezpieczeństwo
++
++- Nie publikuj `FACEBOOK_CLIENT_SECRET`, `EMAIL_API_KEY` ani `TWILIO_AUTH_TOKEN`.
++- Produkcyjne sekrety trzymaj wyłącznie w zmiennych środowiskowych hostingu.
++- Kody są ważne przez 15 minut.
++- Wysyłka kodów i próby potwierdzenia mają limity częstotliwości.
++- Nie oznaczaj technicznych adresów `@users.invalid` ani numerów `pending-...` jako potwierdzonych.
+diff --git a/README.md b/README.md
+index 7044569..3066d76 100644
+--- a/README.md
++++ b/README.md
+@@ -120,3 +120,21 @@ Do prezentacji rodzinie zacznij od `PREZENTACJA_DLA_RODZICOW_ADASIA.md`. Aktuali
+ - Błędy wysyłki powiadomień i innych efektów ubocznych trafiają do panelu stanu systemu.
+ 
+ Przy aktualizacji z 1.3 przeczytaj `UPGRADE_TO_1.4.md`.
++
++## Weryfikacja kontaktu dopiero przed pierwszą ofertą
++
++Po zastosowaniu patcha konto utworzone przez Facebooka może przeglądać serwis od razu, również wtedy, gdy Meta nie zwróci adresu e-mail. Weryfikacja kontaktu uruchamia się dopiero przed pierwszą wiążącą ofertą albo wystawieniem przedmiotu.
++
++Tryb ustawiasz w `.env`:
++
++```env
++# both | either | email | phone
++CONTACT_VERIFICATION_MODE=both
++```
++
++- `both` - wymagany e-mail i telefon;
++- `either` - użytkownik wybiera e-mail albo telefon;
++- `email` - wystarczy e-mail;
++- `phone` - wystarczy telefon.
++
++Szczegółowa konfiguracja wysyłki znajduje się w `INSTRUKCJA_WERYFIKACJI_KONTAKTU.md`.
+diff --git a/src/actions/auth.ts b/src/actions/auth.ts
+index f6bf12e..874e121 100644
+--- a/src/actions/auth.ts
++++ b/src/actions/auth.ts
+@@ -12,6 +12,12 @@ import { logAudit } from "@/lib/audit";
+ import { consumeRateLimit } from "@/lib/rate-limit";
+ import { findOrCreateQuickUser, hashLoginCode, safeReturnTo } from "@/lib/quick-auth";
+ import { normalizePhone, shouldActivateAccount } from "@/lib/auth-policy";
++import {
++  getContactVerificationMode,
++  hasRequiredContactVerification,
++  isTechnicalEmail,
++  isTechnicalPhone,
++} from "@/lib/contact-verification";
+ 
+ export type ActionResult = { ok: boolean; error?: string; devHint?: string };
+ 
+@@ -97,19 +103,23 @@ export async function registerAction(_prev: ActionResult, formData: FormData): P
+ 
+   await db.insert(userProfiles).values({ userId: user.id });
+ 
+-  const emailToken = crypto.randomUUID();
++  const emailToken = await generateUniqueEmailVerificationCode();
+   const phoneCode = generateNumericCode(6);
+   await db.insert(userVerifications).values({
+     userId: user.id,
+     emailToken,
+-    emailTokenExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
++    emailTokenExpiresAt: new Date(Date.now() + 15 * 60 * 1000),
+     phoneCode,
+     phoneCodeExpiresAt: new Date(Date.now() + 15 * 60 * 1000),
+   });
+ 
+-  const activationUrl = `${process.env.APP_URL ?? "http://localhost:3000"}/weryfikacja/potwierdz?token=${emailToken}`;
+   const emailProvider = getEmailProvider();
+-  await emailProvider.send({ to: user.email, subject: "Potwierdź konto LicytujDobro", text: `Otwórz link, aby potwierdzić konto: ${activationUrl}` });
++  await emailProvider.send({
++    to: user.email,
++    subject: "Kod weryfikacyjny LicytujDobro",
++    text: `Twój kod weryfikacyjny: ${emailToken}
++Kod działa przez 15 minut. Jeżeli to nie Ty, zignoruj tę wiadomość.`,
++  });
+   const sms = getSmsProvider();
+   await sms.send(user.phone, `LicytujDobro: Twój kod weryfikacyjny to ${phoneCode}`);
+ 
+@@ -145,7 +155,7 @@ export async function loginAction(_prev: ActionResult, formData: FormData): Prom
+   await createSession(user.id);
+   await logAudit({ actorId: user.id, action: "LOGOWANIE", entityType: "user", entityId: user.id });
+   const destination = safeReturnTo(parsed.data.returnTo);
+-  redirect(user.phoneVerifiedAt && user.acceptedTermsAt ? destination : `/weryfikacja?returnTo=${encodeURIComponent(destination)}`);
++  redirect(destination);
+ }
+ 
+ export async function logoutAction() {
+@@ -157,10 +167,211 @@ export async function logoutAction() {
+   redirect("/");
+ }
+ 
+-export async function confirmEmailAction(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
++async function generateUniqueEmailVerificationCode() {
++  for (let attempt = 0; attempt < 12; attempt += 1) {
++    const code = generateNumericCode(6);
++    const [collision] = await db
++      .select({ id: userVerifications.id })
++      .from(userVerifications)
++      .where(eq(userVerifications.emailToken, code))
++      .limit(1);
++    if (!collision) return code;
++  }
++  throw new Error("Nie udało się wygenerować kodu e-mail. Spróbuj ponownie.");
++}
++
++const contactVerificationSchema = z.object({
++  method: z.enum(["both", "email", "phone"]).optional().default("both"),
++  email: z.string().trim().optional().default(""),
++  phone: z.string().trim().optional().default(""),
++  acceptRules: z.string().optional(),
++  returnTo: z.string().optional().default("/dashboard"),
++});
++
++export async function startContactVerificationAction(
++  _prev: ActionResult,
++  formData: FormData,
++): Promise<ActionResult> {
++  const user = await getCurrentUser();
++  if (!user) return { ok: false, error: "Musisz być zalogowany." };
++
++  const parsed = contactVerificationSchema.safeParse(
++    Object.fromEntries(formData.entries()),
++  );
++  if (!parsed.success) {
++    return {
++      ok: false,
++      error: parsed.error.issues[0]?.message ?? "Uzupełnij dane kontaktowe.",
++    };
++  }
++
++  const mode = getContactVerificationMode();
++  const method =
++    mode === "either"
++      ? parsed.data.method === "phone"
++        ? "phone"
++        : "email"
++      : mode;
++  const wantsEmail = method === "both" || method === "email";
++  const wantsPhone = method === "both" || method === "phone";
++  const needsEmail = wantsEmail && !user.emailVerifiedAt;
++  const needsPhone = wantsPhone && !user.phoneVerifiedAt;
++
++  if (!needsEmail && !needsPhone) return { ok: true };
++
++  if (!user.acceptedTermsAt && parsed.data.acceptRules !== "on") {
++    return {
++      ok: false,
++      error: "Potwierdź pełnoletność i zaakceptuj regulamin oraz politykę prywatności.",
++    };
++  }
++
++  let email = user.email;
++  let phone = user.phone;
++
++  if (needsEmail) {
++    const candidate = parsed.data.email.toLowerCase();
++    const emailResult = z.string().email("Podaj poprawny adres e-mail.").safeParse(candidate);
++    if (!emailResult.success) {
++      return { ok: false, error: emailResult.error.issues[0]?.message };
++    }
++    email = emailResult.data;
++    const [owner] = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);
++    if (owner && owner.id !== user.id) {
++      return { ok: false, error: "Ten adres e-mail jest już używany przez inne konto." };
++    }
++  }
++
++  if (needsPhone) {
++    try {
++      phone = normalizePhone(parsed.data.phone);
++    } catch (error) {
++      return { ok: false, error: (error as Error).message };
++    }
++    const [owner] = await db.select({ id: users.id }).from(users).where(eq(users.phone, phone)).limit(1);
++    if (owner && owner.id !== user.id) {
++      return { ok: false, error: "Ten numer telefonu jest już używany przez inne konto." };
++    }
++  }
++
++  if (needsEmail) {
++    const rate = await consumeRateLimit(`email-verification:${user.id}`, 5, 60 * 60 * 1000);
++    if (!rate.ok) {
++      return { ok: false, error: `Limit wiadomości e-mail został wykorzystany. Spróbuj za ${rate.retryAfterSeconds} s.` };
++    }
++  }
++  if (needsPhone) {
++    const rate = await consumeRateLimit(`sms:${user.id}`, 5, 60 * 60 * 1000);
++    if (!rate.ok) {
++      return { ok: false, error: `Limit SMS został wykorzystany. Spróbuj za ${rate.retryAfterSeconds} s.` };
++    }
++  }
++
++  const emailCode = needsEmail ? await generateUniqueEmailVerificationCode() : null;
++  const phoneCode = needsPhone ? generateNumericCode(6) : null;
++  const now = new Date();
++
++  await db.transaction(async (tx) => {
++    await tx
++      .update(users)
++      .set({
++        email,
++        phone,
++        emailVerifiedAt: needsEmail ? null : user.emailVerifiedAt,
++        phoneVerifiedAt: needsPhone ? null : user.phoneVerifiedAt,
++        isAdultConfirmed: user.isAdultConfirmed || parsed.data.acceptRules === "on",
++        acceptedTermsAt: user.acceptedTermsAt ?? (parsed.data.acceptRules === "on" ? now : null),
++        acceptedPrivacyAt: user.acceptedPrivacyAt ?? (parsed.data.acceptRules === "on" ? now : null),
++        acceptedBiddingRulesAt:
++          user.acceptedBiddingRulesAt ?? (parsed.data.acceptRules === "on" ? now : null),
++        onboardingCompletedAt: user.onboardingCompletedAt ?? now,
++        updatedAt: now,
++      })
++      .where(eq(users.id, user.id));
++
++    await tx
++      .insert(userVerifications)
++      .values({
++        userId: user.id,
++        emailToken: emailCode,
++        emailTokenExpiresAt: emailCode
++          ? new Date(Date.now() + 15 * 60 * 1000)
++          : null,
++        phoneCode,
++        phoneCodeExpiresAt: phoneCode
++          ? new Date(Date.now() + 15 * 60 * 1000)
++          : null,
++        phoneAttempts: 0,
++      })
++      .onConflictDoUpdate({
++        target: userVerifications.userId,
++        set: {
++          ...(emailCode
++            ? {
++                emailToken: emailCode,
++                emailTokenExpiresAt: new Date(Date.now() + 15 * 60 * 1000),
++              }
++            : {}),
++          ...(phoneCode
++            ? {
++                phoneCode,
++                phoneCodeExpiresAt: new Date(Date.now() + 15 * 60 * 1000),
++                phoneAttempts: 0,
++              }
++            : {}),
++          updatedAt: now,
++        },
++      });
++  });
++
++  const returnTo = safeReturnTo(parsed.data.returnTo);
++
++  try {
++    if (emailCode) {
++      await getEmailProvider().send({
++        to: email,
++        subject: "Kod weryfikacyjny LicytujDobro",
++        text: `Twój kod weryfikacyjny: ${emailCode}
++Kod działa przez 15 minut. Jeżeli to nie Ty, zignoruj tę wiadomość.`,
++      });
++    }
++    if (phoneCode) {
++      await getSmsProvider().send(
++        phone,
++        `LicytujDobro: Twój kod weryfikacyjny to ${phoneCode}`,
++      );
++    }
++  } catch (error) {
++    console.error("[Weryfikacja kontaktu] Błąd wysyłki", error);
++    return {
++      ok: false,
++      error: "Dane zapisano, ale nie udało się wysłać kodu. Spróbuj wysłać go ponownie.",
++    };
++  }
++
++  return { ok: true };
++}
++
++export async function confirmEmailAction(
++  _prev: ActionResult,
++  formData: FormData,
++): Promise<ActionResult> {
+   const user = await getCurrentUser();
+   if (!user) return { ok: false, error: "Musisz być zalogowany." };
+-  const token = String(formData.get("token") ?? "");
++  if (isTechnicalEmail(user.email)) {
++    return { ok: false, error: "Najpierw podaj prawdziwy adres e-mail." };
++  }
++
++  const rate = await consumeRateLimit(`email-verify-attempt:${user.id}`, 10, 15 * 60 * 1000);
++  if (!rate.ok) {
++    return { ok: false, error: `Zbyt wiele prób. Spróbuj za ${rate.retryAfterSeconds} s.` };
++  }
++
++  const code = String(formData.get("code") ?? formData.get("token") ?? "").trim();
++  if (!/^\d{6}$/.test(code)) {
++    return { ok: false, error: "Wpisz sześciocyfrowy kod z wiadomości e-mail." };
++  }
++
+   const [verification] = await db
+     .select()
+     .from(userVerifications)
+@@ -168,17 +379,23 @@ export async function confirmEmailAction(_prev: ActionResult, formData: FormData
+     .orderBy(desc(userVerifications.createdAt))
+     .limit(1);
+ 
+-  if (!verification || verification.emailToken !== token) {
+-    return { ok: false, error: "Nieprawidłowy kod potwierdzający." };
++  if (!verification || verification.emailToken !== code) {
++    return { ok: false, error: "Nieprawidłowy kod e-mail." };
+   }
+   if (!verification.emailTokenExpiresAt || verification.emailTokenExpiresAt < new Date()) {
+-    return { ok: false, error: "Link wygasł. Wyślij link ponownie." };
++    return { ok: false, error: "Kod e-mail wygasł. Wyślij nowy." };
+   }
++
+   await db.transaction(async (tx) => {
+     await tx.update(users).set({ emailVerifiedAt: new Date(), updatedAt: new Date() }).where(eq(users.id, user.id));
+     await tx.update(userVerifications).set({ emailToken: null, emailTokenExpiresAt: null, updatedAt: new Date() }).where(eq(userVerifications.id, verification.id));
+   });
+   await maybeActivateAccount(user.id);
++
++  const [updated] = await db.select().from(users).where(eq(users.id, user.id)).limit(1);
++  if (updated && hasRequiredContactVerification(updated)) {
++    redirect(safeReturnTo(String(formData.get("returnTo") ?? "/dashboard")));
++  }
+   return { ok: true };
+ }
+ 
+@@ -186,51 +403,45 @@ export async function resendEmailVerificationAction(): Promise<ActionResult> {
+   const user = await getCurrentUser();
+   if (!user) return { ok: false, error: "Musisz być zalogowany." };
+   if (user.emailVerifiedAt) return { ok: true };
++  if (isTechnicalEmail(user.email)) {
++    return { ok: false, error: "Najpierw podaj prawdziwy adres e-mail." };
++  }
+ 
+-  const resendLimit = await consumeRateLimit(`email-verification:${user.id}`, 3, 60 * 60 * 1000);
++  const resendLimit = await consumeRateLimit(`email-verification:${user.id}`, 5, 60 * 60 * 1000);
+   if (!resendLimit.ok) {
+     return { ok: false, error: `Limit wiadomości został wykorzystany. Spróbuj za ${resendLimit.retryAfterSeconds} s.` };
+   }
+ 
+-  const [existing] = await db
+-    .select()
+-    .from(userVerifications)
+-    .where(eq(userVerifications.userId, user.id))
+-    .orderBy(desc(userVerifications.createdAt))
+-    .limit(1);
+-
+-  if (existing && Date.now() - existing.updatedAt.getTime() < 60_000) {
+-    return { ok: false, error: "Odczekaj minutę przed wysłaniem kolejnego linku." };
+-  }
+-
+-  const emailToken = crypto.randomUUID();
+-  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+-  if (existing) {
+-    await db
+-      .update(userVerifications)
+-      .set({ emailToken, emailTokenExpiresAt: expiresAt, updatedAt: new Date() })
+-      .where(eq(userVerifications.id, existing.id));
+-  } else {
+-    await db.insert(userVerifications).values({
+-      userId: user.id,
+-      emailToken,
+-      emailTokenExpiresAt: expiresAt,
++  const emailCode = await generateUniqueEmailVerificationCode();
++  const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
++  await db
++    .insert(userVerifications)
++    .values({ userId: user.id, emailToken: emailCode, emailTokenExpiresAt: expiresAt })
++    .onConflictDoUpdate({
++      target: userVerifications.userId,
++      set: { emailToken: emailCode, emailTokenExpiresAt: expiresAt, updatedAt: new Date() },
+     });
+-  }
+ 
+-  const activationUrl = `${process.env.APP_URL ?? "http://localhost:3000"}/weryfikacja/potwierdz?token=${emailToken}`;
+   await getEmailProvider().send({
+     to: user.email,
+-    subject: "Potwierdź konto LicytujDobro",
+-    text: `Otwórz link, aby potwierdzić konto: ${activationUrl}`,
++    subject: "Kod weryfikacyjny LicytujDobro",
++    text: `Twój kod weryfikacyjny: ${emailCode}
++Kod działa przez 15 minut. Jeżeli to nie Ty, zignoruj tę wiadomość.`,
+   });
+ 
+-  return { ok: true, devHint: isEmailDevMode() ? emailToken : undefined };
++  return { ok: true, devHint: isEmailDevMode() ? emailCode : undefined };
+ }
+ 
+-export async function verifyPhoneAction(_prev: ActionResult, formData: FormData): Promise<ActionResult> {
++export async function verifyPhoneAction(
++  _prev: ActionResult,
++  formData: FormData,
++): Promise<ActionResult> {
+   const user = await getCurrentUser();
+   if (!user) return { ok: false, error: "Musisz być zalogowany." };
++  if (isTechnicalPhone(user.phone)) {
++    return { ok: false, error: "Najpierw podaj prawdziwy numer telefonu." };
++  }
++
+   const code = String(formData.get("code") ?? "").trim();
+   const [verification] = await db
+     .select()
+@@ -259,40 +470,44 @@ export async function verifyPhoneAction(_prev: ActionResult, formData: FormData)
+     await tx.update(userVerifications).set({ phoneCode: null, phoneCodeExpiresAt: null, phoneAttempts: 0, updatedAt: new Date() }).where(eq(userVerifications.id, verification.id));
+   });
+   await maybeActivateAccount(user.id);
++
++  const [updated] = await db.select().from(users).where(eq(users.id, user.id)).limit(1);
++  if (updated && hasRequiredContactVerification(updated)) {
++    redirect(safeReturnTo(String(formData.get("returnTo") ?? "/dashboard")));
++  }
+   return { ok: true };
+ }
+ 
+ export async function resendPhoneCodeAction(): Promise<ActionResult & { code?: string }> {
+   const user = await getCurrentUser();
+   if (!user) return { ok: false, error: "Musisz być zalogowany." };
+-  const resendLimit = await consumeRateLimit(`sms:${user.id}`, 3, 60 * 60 * 1000);
+-  if (!resendLimit.ok) return { ok: false, error: `Limit SMS został wykorzystany. Spróbuj za ${resendLimit.retryAfterSeconds} s.` };
+-  const phoneCode = generateNumericCode(6);
+-  const [existing] = await db
+-    .select()
+-    .from(userVerifications)
+-    .where(eq(userVerifications.userId, user.id))
+-    .orderBy(desc(userVerifications.createdAt))
+-    .limit(1);
+-
+-  if (existing && Date.now() - existing.updatedAt.getTime() < 60_000) {
+-    return { ok: false, error: "Odczekaj minutę przed wysłaniem kolejnego kodu." };
++  if (isTechnicalPhone(user.phone)) {
++    return { ok: false, error: "Najpierw podaj prawdziwy numer telefonu." };
+   }
+ 
+-  if (existing) {
+-    await db
+-      .update(userVerifications)
+-      .set({ phoneCode, phoneCodeExpiresAt: new Date(Date.now() + 15 * 60 * 1000), phoneAttempts: 0 })
+-      .where(eq(userVerifications.id, existing.id));
+-  } else {
+-    await db.insert(userVerifications).values({
++  const resendLimit = await consumeRateLimit(`sms:${user.id}`, 5, 60 * 60 * 1000);
++  if (!resendLimit.ok) return { ok: false, error: `Limit SMS został wykorzystany. Spróbuj za ${resendLimit.retryAfterSeconds} s.` };
++
++  const phoneCode = generateNumericCode(6);
++  await db
++    .insert(userVerifications)
++    .values({
+       userId: user.id,
+       phoneCode,
+       phoneCodeExpiresAt: new Date(Date.now() + 15 * 60 * 1000),
++      phoneAttempts: 0,
++    })
++    .onConflictDoUpdate({
++      target: userVerifications.userId,
++      set: {
++        phoneCode,
++        phoneCodeExpiresAt: new Date(Date.now() + 15 * 60 * 1000),
++        phoneAttempts: 0,
++        updatedAt: new Date(),
++      },
+     });
+-  }
+-  const sms = getSmsProvider();
+-  await sms.send(user.phone, `LicytujDobro: Twój kod weryfikacyjny to ${phoneCode}`);
++
++  await getSmsProvider().send(user.phone, `LicytujDobro: Twój kod weryfikacyjny to ${phoneCode}`);
+   return { ok: true, devHint: isSmsDevMode() ? phoneCode : undefined };
+ }
+ 
+@@ -392,7 +607,7 @@ export async function verifyEmailLoginCodeAction(_prev: ActionResult, formData:
+   await db.update(emailLoginCodes).set({ usedAt: new Date() }).where(eq(emailLoginCodes.id, entry.id));
+   await createSession(user.id);
+   const returnTo = safeReturnTo(entry.returnTo);
+-  redirect(user.phoneVerifiedAt && user.acceptedTermsAt ? returnTo : `/konto/dokoncz?returnTo=${encodeURIComponent(returnTo)}`);
++  redirect(returnTo);
+ }
+ 
+ const completeQuickAccountSchema = z.object({
+diff --git a/src/actions/bidding.ts b/src/actions/bidding.ts
+index ca357e6..a6a1801 100644
+--- a/src/actions/bidding.ts
++++ b/src/actions/bidding.ts
+@@ -27,7 +27,7 @@ const bidSchema = z.object({
+ export async function placeBidAction(_prev: BidResult, formData: FormData): Promise<BidResult> {
+   const user = await getCurrentUser();
+   if (!user) return { ok: false, error: "Musisz być zalogowany, aby licytować." };
+-  if (!isFullyVerified(user)) return { ok: false, error: "Dokończ weryfikację e-mail i telefonu, aby licytować." };
++  if (!isFullyVerified(user)) return { ok: false, error: "Potwierdź wymagany kontakt, aby licytować." };
+   if (user.status !== "aktywne") return { ok: false, error: "Twoje konto nie może obecnie licytować." };
+   if (user.biddingSuspendedUntil && user.biddingSuspendedUntil > new Date()) return { ok: false, error: "Twoje konto ma czasowo zablokowaną możliwość licytowania." };
+   const rate = await consumeRateLimit(`bid:${user.id}`, 30, 60 * 1000);
+diff --git a/src/actions/listings.ts b/src/actions/listings.ts
+index a28741e..c16bde4 100644
+--- a/src/actions/listings.ts
++++ b/src/actions/listings.ts
+@@ -53,7 +53,7 @@ async function ensureCanList() {
+   const user = await getCurrentUser();
+   if (!user) throw new Error("Musisz być zalogowany.");
+   if (!isFullyVerified(user)) {
+-    throw new Error("Dokończ weryfikację e-mail i telefonu, aby wystawiać przedmioty.");
++    throw new Error("Potwierdź wymagany kontakt, aby wystawiać przedmioty.");
+   }
+   if (user.status !== "aktywne") {
+     throw new Error("Twoje konto nie może obecnie wystawiać przedmiotów.");
+diff --git a/src/app/api/auth/apple/callback/route.ts b/src/app/api/auth/apple/callback/route.ts
+index 0a387d8..8cd471e 100644
+--- a/src/app/api/auth/apple/callback/route.ts
++++ b/src/app/api/auth/apple/callback/route.ts
+@@ -36,10 +36,7 @@ export async function POST(request: NextRequest) {
+       name,
+     });
+     await createSession(user.id);
+-    const destination = user.phoneVerifiedAt && user.acceptedTermsAt
+-      ? state.returnTo
+-      : `/konto/dokoncz?returnTo=${encodeURIComponent(state.returnTo)}`;
+-    return NextResponse.redirect(new URL(destination, request.url), 303);
++    return NextResponse.redirect(new URL(state.returnTo, request.url), 303);
+   } catch {
+     return NextResponse.redirect(new URL("/logowanie?error=apple_failed", request.url), 303);
+   }
+diff --git a/src/app/api/auth/facebook/callback/route.ts b/src/app/api/auth/facebook/callback/route.ts
+index 44292b9..629e6c3 100644
+--- a/src/app/api/auth/facebook/callback/route.ts
++++ b/src/app/api/auth/facebook/callback/route.ts
+@@ -2,36 +2,205 @@ import { NextRequest, NextResponse } from "next/server";
+ import { createSession } from "@/lib/auth";
+ import { findOrCreateQuickUser, safeReturnTo } from "@/lib/quick-auth";
+ 
++type FacebookApiError = {
++  message?: string;
++  type?: string;
++  code?: number;
++  error_subcode?: number;
++  fbtrace_id?: string;
++};
++
++type FacebookTokenResponse = {
++  access_token?: string;
++  token_type?: string;
++  expires_in?: number;
++  error?: FacebookApiError;
++};
++
++type FacebookProfileResponse = {
++  id?: string;
++  name?: string;
++  email?: string;
++  error?: FacebookApiError;
++};
++
++type FacebookPermissionsResponse = {
++  data?: Array<{ permission: string; status: string }>;
++  error?: FacebookApiError;
++};
++
++function redirectToLogin(
++  request: NextRequest,
++  error: string,
++  returnTo: string,
++) {
++  const url = new URL("/logowanie", request.url);
++  url.searchParams.set("error", error);
++  url.searchParams.set("returnTo", returnTo);
++
++  const response = NextResponse.redirect(url, 303);
++  response.cookies.delete("ld_oauth_state");
++  response.cookies.delete("ld_oauth_return");
++  return response;
++}
++
++function getFacebookErrorMessage(error?: FacebookApiError) {
++  if (!error) return "Nieznany błąd Facebook API";
++
++  return [
++    error.message,
++    error.type ? `type=${error.type}` : null,
++    typeof error.code === "number" ? `code=${error.code}` : null,
++    typeof error.error_subcode === "number"
++      ? `subcode=${error.error_subcode}`
++      : null,
++    error.fbtrace_id ? `trace=${error.fbtrace_id}` : null,
++  ]
++    .filter(Boolean)
++    .join(", ");
++}
++
+ export async function GET(request: NextRequest) {
++  const returnTo = safeReturnTo(
++    request.cookies.get("ld_oauth_return")?.value,
++  );
++
++  const oauthError = request.nextUrl.searchParams.get("error");
++  if (oauthError) {
++    console.warn("[Facebook OAuth] Logowanie anulowane", {
++      error: oauthError,
++      reason: request.nextUrl.searchParams.get("error_reason"),
++      description: request.nextUrl.searchParams.get("error_description"),
++    });
++    return redirectToLogin(request, "facebook_denied", returnTo);
++  }
++
+   const code = request.nextUrl.searchParams.get("code");
+   const state = request.nextUrl.searchParams.get("state");
+-  const expected = request.cookies.get("ld_oauth_state")?.value;
+-  const returnTo = safeReturnTo(request.cookies.get("ld_oauth_return")?.value);
+-  if (!code || !state || !expected || state !== expected) return NextResponse.redirect(new URL("/logowanie?error=oauth_state", request.url));
++  const expectedState = request.cookies.get("ld_oauth_state")?.value;
++
++  if (!code || !state || !expectedState || state !== expectedState) {
++    return redirectToLogin(request, "oauth_state", returnTo);
++  }
++
+   const clientId = process.env.FACEBOOK_CLIENT_ID;
+   const clientSecret = process.env.FACEBOOK_CLIENT_SECRET;
+-  if (!clientId || !clientSecret) return NextResponse.redirect(new URL("/logowanie?error=facebook_not_configured", request.url));
+-  const redirectUri = `${process.env.APP_URL || request.nextUrl.origin}/api/auth/facebook/callback`;
++  if (!clientId || !clientSecret) {
++    return redirectToLogin(request, "facebook_not_configured", returnTo);
++  }
++
++  const appUrl = (process.env.APP_URL || request.nextUrl.origin).replace(
++    /\/$/,
++    "",
++  );
++  const redirectUri = `${appUrl}/api/auth/facebook/callback`;
++
+   try {
+-    const tokenUrl = new URL("https://graph.facebook.com/oauth/access_token");
+-    tokenUrl.searchParams.set("client_id", clientId); tokenUrl.searchParams.set("client_secret", clientSecret); tokenUrl.searchParams.set("redirect_uri", redirectUri); tokenUrl.searchParams.set("code", code);
+-    const tokenResponse = await fetch(tokenUrl);
+-    if (!tokenResponse.ok) throw new Error("Nie udało się pobrać tokenu Facebook.");
+-    const token = await tokenResponse.json() as { access_token?: string };
+-    if (!token.access_token) throw new Error("Brak tokenu Facebook.");
++    const tokenUrl = new URL(
++      "https://graph.facebook.com/oauth/access_token",
++    );
++    tokenUrl.searchParams.set("client_id", clientId);
++    tokenUrl.searchParams.set("client_secret", clientSecret);
++    tokenUrl.searchParams.set("redirect_uri", redirectUri);
++    tokenUrl.searchParams.set("code", code);
++
++    const tokenResponse = await fetch(tokenUrl, { cache: "no-store" });
++    const token = (await tokenResponse.json()) as FacebookTokenResponse;
++
++    if (!tokenResponse.ok || token.error || !token.access_token) {
++      throw new Error(
++        `Nie udało się pobrać tokenu Facebook: ${getFacebookErrorMessage(
++          token.error,
++        )}`,
++      );
++    }
++
++    let emailPermissionStatus: string | undefined;
++    try {
++      const permissionsResponse = await fetch(
++        "https://graph.facebook.com/me/permissions",
++        {
++          headers: { Authorization: `Bearer ${token.access_token}` },
++          cache: "no-store",
++        },
++      );
++      const permissions =
++        (await permissionsResponse.json()) as FacebookPermissionsResponse;
++
++      if (permissionsResponse.ok && !permissions.error) {
++        emailPermissionStatus = permissions.data?.find(
++          (item) => item.permission === "email",
++        )?.status;
++
++        if (process.env.NODE_ENV !== "production") {
++          console.log("[Facebook OAuth permissions]", permissions.data);
++        }
++      }
++    } catch (permissionsError) {
++      console.warn(
++        "[Facebook OAuth] Nie udało się sprawdzić uprawnień",
++        permissionsError,
++      );
++    }
++
+     const profileUrl = new URL("https://graph.facebook.com/me");
+-    profileUrl.searchParams.set("fields", "id,name,email"); profileUrl.searchParams.set("access_token", token.access_token);
+-    const profileResponse = await fetch(profileUrl);
+-    if (!profileResponse.ok) throw new Error("Nie udało się pobrać profilu Facebook.");
+-    const profile = await profileResponse.json() as { id?: string; email?: string; name?: string };
+-    if (!profile.id || !profile.email) throw new Error("Facebook nie przekazał adresu e-mail. Wybierz Google lub kod e-mail.");
+-    const user = await findOrCreateQuickUser({ provider: "facebook", providerAccountId: profile.id, email: profile.email, name: profile.name });
++    profileUrl.searchParams.set("fields", "id,name,email");
++
++    const profileResponse = await fetch(profileUrl, {
++      headers: { Authorization: `Bearer ${token.access_token}` },
++      cache: "no-store",
++    });
++    const profile =
++      (await profileResponse.json()) as FacebookProfileResponse;
++
++    if (!profileResponse.ok || profile.error) {
++      throw new Error(
++        `Nie udało się pobrać profilu Facebook: ${getFacebookErrorMessage(
++          profile.error,
++        )}`,
++      );
++    }
++    if (!profile.id) {
++      throw new Error("Facebook nie zwrócił identyfikatora użytkownika.");
++    }
++
++    const email = profile.email?.trim().toLowerCase() || null;
++    const name = profile.name?.trim() || undefined;
++
++    if (!email) {
++      console.warn(
++        "[Facebook OAuth] Konto zostanie utworzone bez e-maila",
++        {
++          facebookUserId: profile.id,
++          hasName: Boolean(name),
++          emailPermissionStatus:
++            emailPermissionStatus ?? "brak informacji",
++        },
++      );
++    }
++
++    const user = await findOrCreateQuickUser({
++      provider: "facebook",
++      providerAccountId: profile.id,
++      email,
++      name,
++    });
++
++    if (user.status === "zablokowane" || user.status === "zawieszone") {
++      return redirectToLogin(request, "facebook_failed", returnTo);
++    }
++
+     await createSession(user.id);
+-    const destination = user.phoneVerifiedAt && user.acceptedTermsAt ? returnTo : `/konto/dokoncz?returnTo=${encodeURIComponent(returnTo)}`;
+-    const response = NextResponse.redirect(new URL(destination, request.url));
+-    response.cookies.delete("ld_oauth_state"); response.cookies.delete("ld_oauth_return");
++
++    const response = NextResponse.redirect(
++      new URL(returnTo, request.url),
++      303,
++    );
++    response.cookies.delete("ld_oauth_state");
++    response.cookies.delete("ld_oauth_return");
+     return response;
+-  } catch {
+-    return NextResponse.redirect(new URL("/logowanie?error=facebook_failed", request.url));
++  } catch (error) {
++    console.error("[Facebook OAuth callback]", error);
++    return redirectToLogin(request, "facebook_failed", returnTo);
+   }
+ }
+diff --git a/src/app/api/auth/facebook/start/route.ts b/src/app/api/auth/facebook/start/route.ts
+index a4ecc5b..eafd177 100644
+--- a/src/app/api/auth/facebook/start/route.ts
++++ b/src/app/api/auth/facebook/start/route.ts
+@@ -4,17 +4,41 @@ import { safeReturnTo } from "@/lib/quick-auth";
+ 
+ export async function GET(request: NextRequest) {
+   const clientId = process.env.FACEBOOK_CLIENT_ID;
+-  if (!clientId) return NextResponse.redirect(new URL("/logowanie?error=facebook_not_configured", request.url));
++  if (!clientId) {
++    return NextResponse.redirect(
++      new URL("/logowanie?error=facebook_not_configured", request.url),
++    );
++  }
++
+   const state = randomBytes(24).toString("base64url");
+   const returnTo = safeReturnTo(request.nextUrl.searchParams.get("returnTo"));
+-  const redirectUri = `${process.env.APP_URL || request.nextUrl.origin}/api/auth/facebook/callback`;
++  const appUrl = (process.env.APP_URL || request.nextUrl.origin).replace(
++    /\/$/,
++    "",
++  );
++  const redirectUri = `${appUrl}/api/auth/facebook/callback`;
++
+   const url = new URL("https://www.facebook.com/dialog/oauth");
+   url.searchParams.set("client_id", clientId);
+   url.searchParams.set("redirect_uri", redirectUri);
+   url.searchParams.set("state", state);
+   url.searchParams.set("scope", "email,public_profile");
++  url.searchParams.set("auth_type", "rerequest");
++
+   const response = NextResponse.redirect(url);
+-  response.cookies.set("ld_oauth_state", state, { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge: 600 });
+-  response.cookies.set("ld_oauth_return", returnTo, { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge: 600 });
++  response.cookies.set("ld_oauth_state", state, {
++    httpOnly: true,
++    sameSite: "lax",
++    secure: process.env.NODE_ENV === "production",
++    path: "/",
++    maxAge: 600,
++  });
++  response.cookies.set("ld_oauth_return", returnTo, {
++    httpOnly: true,
++    sameSite: "lax",
++    secure: process.env.NODE_ENV === "production",
++    path: "/",
++    maxAge: 600,
++  });
+   return response;
+ }
+diff --git a/src/app/api/auth/google/callback/route.ts b/src/app/api/auth/google/callback/route.ts
+index 69a3f59..f6e4061 100644
+--- a/src/app/api/auth/google/callback/route.ts
++++ b/src/app/api/auth/google/callback/route.ts
+@@ -23,8 +23,7 @@ export async function GET(request: NextRequest) {
+     if (!profile.sub || !profile.email || profile.email_verified !== true) throw new Error("Google nie potwierdził adresu e-mail.");
+     const user = await findOrCreateQuickUser({ provider: "google", providerAccountId: profile.sub, email: profile.email, name: profile.name });
+     await createSession(user.id);
+-    const destination = user.phoneVerifiedAt && user.acceptedTermsAt ? returnTo : `/konto/dokoncz?returnTo=${encodeURIComponent(returnTo)}`;
+-    const response = NextResponse.redirect(new URL(destination, request.url));
++    const response = NextResponse.redirect(new URL(returnTo, request.url));
+     response.cookies.delete("ld_oauth_state"); response.cookies.delete("ld_oauth_return");
+     return response;
+   } catch {
+diff --git a/src/app/api/readiness/route.ts b/src/app/api/readiness/route.ts
+index cb19925..1d6c122 100644
+--- a/src/app/api/readiness/route.ts
++++ b/src/app/api/readiness/route.ts
+@@ -12,8 +12,14 @@ export async function GET() {
+     if (campaignError) issues.push(campaignError);
+     const handoverSecret = process.env.HANDOVER_CODE_SECRET ?? "";
+     if (handoverSecret.length < 32 || /change-me/i.test(handoverSecret)) issues.push("HANDOVER_CODE_SECRET nie jest skonfigurowany.");
+-    if (process.env.NODE_ENV === "production" && process.env.EMAIL_MODE !== "production") issues.push("EMAIL_MODE nie jest ustawiony na production.");
+-    if (process.env.NODE_ENV === "production" && process.env.SMS_MODE !== "production") issues.push("SMS_MODE nie jest ustawiony na production.");
++    const emailProvider = (process.env.EMAIL_PROVIDER || process.env.EMAIL_MODE || "dev").toLowerCase();
++    const smsProvider = (process.env.SMS_PROVIDER || process.env.SMS_MODE || "dev").toLowerCase();
++    if (process.env.NODE_ENV === "production" && emailProvider === "dev") {
++      issues.push("EMAIL_PROVIDER nadal działa w trybie dev.");
++    }
++    if (process.env.NODE_ENV === "production" && smsProvider === "dev") {
++      issues.push("SMS_PROVIDER nadal działa w trybie dev.");
++    }
+ 
+     const productionBlocked = process.env.NODE_ENV === "production" && issues.length > 0;
+     return NextResponse.json({
+diff --git a/src/app/aukcje/[id]/page.tsx b/src/app/aukcje/[id]/page.tsx
+index 728e182..2b0d069 100644
+--- a/src/app/aukcje/[id]/page.tsx
++++ b/src/app/aukcje/[id]/page.tsx
+@@ -63,7 +63,7 @@ export default async function AuctionDetailPage({ params, searchParams }: { para
+   const isActive = listing.status === "AKTYWNA" && auction?.status === "AKTYWNA" && !isOver;
+   let disabledReason: string | undefined;
+   if (!user) disabledReason = "Zaloguj się, aby licytować.";
+-  else if (!isFullyVerified(user)) disabledReason = "Dokończ weryfikację e-mail i telefonu, aby licytować.";
++  else if (!isFullyVerified(user)) disabledReason = "Potwierdź wymagany kontakt, aby licytować.";
+   else if (isOwner) disabledReason = "Nie możesz licytować własnej aukcji.";
+   else if (!isActive) disabledReason = "Ta aukcja nie przyjmuje już ofert.";
+ 
+@@ -84,7 +84,7 @@ export default async function AuctionDetailPage({ params, searchParams }: { para
+   const userLostAuction = Boolean(user && currentUserBid && auction && auction.status === "ZAKONCZONA" && auction.winnerId !== user.id);
+   const bidReturnTo = `/aukcje/${listing.id}?bid=${initialBid ?? minNextBid}&confirmBid=1`;
+   const verificationUrl = user && isActive && !isOwner && !isFullyVerified(user)
+-    ? `${user.phone.startsWith("pending-") || !user.acceptedTermsAt ? "/konto/dokoncz" : "/weryfikacja"}?returnTo=${encodeURIComponent(bidReturnTo)}`
++    ? `/weryfikacja?returnTo=${encodeURIComponent(bidReturnTo)}`
+     : undefined;
+ 
+   return (
+diff --git a/src/app/dashboard/page.tsx b/src/app/dashboard/page.tsx
+index 81e4519..d5aa6b0 100644
+--- a/src/app/dashboard/page.tsx
++++ b/src/app/dashboard/page.tsx
+@@ -36,7 +36,7 @@ export default async function DashboardPage() {
+       <LinkButton href="/dodaj-przedmiot"><PlusIcon size={16}/> Wystaw przedmiot</LinkButton>
+     </div>
+ 
+-    {!isFullyVerified(user)&&<div className="mt-6"><Alert tone="warning" title="Dokończ weryfikację">Potwierdź e-mail oraz telefon, aby licytować i wystawiać przedmioty. <Link href="/weryfikacja" className="font-bold underline">Przejdź do weryfikacji</Link>.</Alert></div>}
++    {!isFullyVerified(user)&&<div className="mt-6"><Alert tone="warning" title="Dokończ weryfikację">Potwierdź wymagany kontakt przed pierwszą ofertą lub wystawieniem przedmiotu. <Link href="/weryfikacja" className="font-bold underline">Przejdź do weryfikacji</Link>.</Alert></div>}
+ 
+     <section className="mt-7 grid grid-cols-2 gap-4 border-b border-slate-200 pb-7 lg:grid-cols-4">
+       <Summary icon={PackageIcon} label="Aktywne aukcje" value={activeListings}/><Summary icon={GavelIcon} label="Transakcje w toku" value={attention.length}/><Summary icon={CheckIcon} label="Zakończone" value={completed}/><Summary icon={BellIcon} label="Nieprzeczytane" value={unread}/>
+diff --git a/src/app/dodaj-przedmiot/page.tsx b/src/app/dodaj-przedmiot/page.tsx
+index 23115e7..5942c35 100644
+--- a/src/app/dodaj-przedmiot/page.tsx
++++ b/src/app/dodaj-przedmiot/page.tsx
+@@ -22,7 +22,7 @@ export default async function AddListingPage({
+ }) {
+   const user = await getCurrentUser();
+   if (!user) redirect("/logowanie");
+-  if (!isFullyVerified(user)) redirect("/weryfikacja");
++  if (!isFullyVerified(user)) redirect("/weryfikacja?returnTo=/dodaj-przedmiot");
+ 
+   const listingId = (await searchParams).listingId;
+   const categoryRows = await db
+diff --git a/src/app/weryfikacja/page.tsx b/src/app/weryfikacja/page.tsx
+index 36dfc98..dd0cfb1 100644
+--- a/src/app/weryfikacja/page.tsx
++++ b/src/app/weryfikacja/page.tsx
+@@ -1,19 +1,39 @@
+ import { redirect } from "next/navigation";
+-import { getCurrentUser } from "@/lib/auth";
++import { desc, eq } from "drizzle-orm";
++
+ import { db } from "@/db";
+ import { userVerifications } from "@/db/schema";
+-import { eq, desc } from "drizzle-orm";
+-import { EmailVerificationForm, PhoneVerificationForm } from "@/components/verification-forms";
+-import { LinkButton, Alert } from "@/components/ui";
++import { getCurrentUser, isFullyVerified } from "@/lib/auth";
++import {
++  getContactVerificationDescription,
++  getContactVerificationMode,
++  isTechnicalEmail,
++  isTechnicalPhone,
++} from "@/lib/contact-verification";
++import { isEmailDevMode } from "@/lib/email";
+ import { isSmsDevMode } from "@/lib/sms";
++import {
++  ContactVerificationSetupForm,
++  EmailVerificationForm,
++  PhoneVerificationForm,
++} from "@/components/verification-forms";
++import { Alert, LinkButton } from "@/components/ui";
+ 
+ export const dynamic = "force-dynamic";
+ 
+-export default async function VerificationPage({ searchParams }: { searchParams: Promise<{ returnTo?: string }> }) {
++export default async function VerificationPage({
++  searchParams,
++}: {
++  searchParams: Promise<{ returnTo?: string }>;
++}) {
+   const user = await getCurrentUser();
+   if (!user) redirect("/logowanie");
++
+   const query = await searchParams;
+-  const returnTo = query.returnTo?.startsWith("/") && !query.returnTo.startsWith("//") ? query.returnTo : "/dashboard";
++  const returnTo =
++    query.returnTo?.startsWith("/") && !query.returnTo.startsWith("//")
++      ? query.returnTo
++      : "/dashboard";
+ 
+   const [verification] = await db
+     .select()
+@@ -22,38 +42,88 @@ export default async function VerificationPage({ searchParams }: { searchParams:
+     .orderBy(desc(userVerifications.createdAt))
+     .limit(1);
+ 
++  const mode = getContactVerificationMode();
+   const emailVerified = Boolean(user.emailVerifiedAt);
+   const phoneVerified = Boolean(user.phoneVerifiedAt);
+-  const bothVerified = emailVerified && phoneVerified;
++  const verificationComplete = isFullyVerified(user);
++  const hasRealEmail = !isTechnicalEmail(user.email);
++  const hasRealPhone = !isTechnicalPhone(user.phone);
++
++  const emailRelevant =
++    mode === "both" || mode === "email" || (mode === "either" && hasRealEmail);
++  const phoneRelevant =
++    mode === "both" || mode === "phone" || (mode === "either" && hasRealPhone);
+ 
+   return (
+     <main className="mx-auto max-w-2xl px-4 py-10 sm:px-6">
+-      <h1 className="text-2xl font-bold text-ink">Weryfikacja konta</h1>
+-      <p className="mt-2 text-sm text-slate-600">
+-        Dopiero po potwierdzeniu adresu e-mail i numeru telefonu możesz licytować oraz wystawiać przedmioty.
++      <h1 className="text-2xl font-bold text-ink">Weryfikacja przed licytacją</h1>
++      <p className="mt-2 text-sm leading-6 text-slate-600">
++        Możesz logować się przez Facebooka i przeglądać serwis bez dodatkowych
++        formalności. Przed pierwszą wiążącą ofertą lub wystawieniem przedmiotu
++        wymagany jest {getContactVerificationDescription(mode)}.
+       </p>
+ 
+-      {isSmsDevMode() && (
++      {(isEmailDevMode() || isSmsDevMode()) && !verificationComplete && (
+         <div className="mt-4">
+-          <Alert tone="warning" title="Tryb deweloperski SMS">
+-            Operator SMS nie jest skonfigurowany - kody weryfikacyjne są prezentowane bezpośrednio w panelu testowym.
++          <Alert tone="warning" title="Tryb deweloperski wysyłki">
++            Nieskonfigurowane kanały nie wysyłają prawdziwych wiadomości. Kody są
++            pokazane poniżej i wypisywane w terminalu aplikacji.
+           </Alert>
+         </div>
+       )}
+ 
+-      <div className="mt-6 grid gap-4">
+-        <EmailVerificationForm devToken={process.env.EMAIL_MODE === "production" || emailVerified ? undefined : verification?.emailToken ?? undefined} verified={emailVerified} />
+-        <PhoneVerificationForm devCode={phoneVerified ? undefined : verification?.phoneCode ?? undefined} verified={phoneVerified} />
++      {!verificationComplete && (
++        <div className="mt-6">
++          <ContactVerificationSetupForm
++            mode={mode}
++            currentEmail={hasRealEmail ? user.email : undefined}
++            currentPhone={hasRealPhone ? user.phone : undefined}
++            emailVerified={emailVerified}
++            phoneVerified={phoneVerified}
++            termsAccepted={Boolean(user.acceptedTermsAt)}
++            returnTo={returnTo}
++          />
++        </div>
++      )}
++
++      <div className="mt-4 grid gap-4">
++        {hasRealEmail && emailRelevant && !emailVerified && (
++          <EmailVerificationForm
++            devCode={
++              isEmailDevMode() ? verification?.emailToken ?? undefined : undefined
++            }
++            verified={emailVerified}
++            email={user.email}
++            returnTo={returnTo}
++          />
++        )}
++
++        {hasRealPhone && phoneRelevant && !phoneVerified && (
++          <PhoneVerificationForm
++            devCode={
++              isSmsDevMode() ? verification?.phoneCode ?? undefined : undefined
++            }
++            verified={phoneVerified}
++            phone={user.phone}
++            returnTo={returnTo}
++          />
++        )}
+       </div>
+ 
+-      {bothVerified && (
++      {verificationComplete && (
+         <div className="mt-6">
+-          <Alert tone="success" title="Konto w pełni zweryfikowane">
+-            Możesz teraz licytować i wystawiać przedmioty.
++          <Alert tone="success" title="Weryfikacja zakończona">
++            Możesz teraz składać wiążące oferty i wystawiać przedmioty.
+           </Alert>
+-          <div className="mt-4 flex gap-3">
+-            <LinkButton href={returnTo}>{returnTo === "/dashboard" ? "Przejdź do konta" : "Wróć do rozpoczętej czynności"}</LinkButton>
+-            <LinkButton href="/aukcje" variant="outline">Zobacz aukcje</LinkButton>
++          <div className="mt-4 flex flex-wrap gap-3">
++            <LinkButton href={returnTo}>
++              {returnTo === "/dashboard"
++                ? "Przejdź do konta"
++                : "Wróć do rozpoczętej czynności"}
++            </LinkButton>
++            <LinkButton href="/aukcje" variant="outline">
++              Zobacz aukcje
++            </LinkButton>
+           </div>
+         </div>
+       )}
+diff --git a/src/app/weryfikacja/potwierdz/page.tsx b/src/app/weryfikacja/potwierdz/page.tsx
+index c7fc421..51f502d 100644
+--- a/src/app/weryfikacja/potwierdz/page.tsx
++++ b/src/app/weryfikacja/potwierdz/page.tsx
+@@ -1,23 +1,111 @@
++import { eq } from "drizzle-orm";
+ 
+ import { db } from "@/db";
+ import { users, userVerifications } from "@/db/schema";
+-import { eq } from "drizzle-orm";
+-import { Card, LinkButton, Alert } from "@/components/ui";
++import { shouldActivateAccount } from "@/lib/auth-policy";
++import { hasRequiredContactVerification } from "@/lib/contact-verification";
++import { safeReturnTo } from "@/lib/quick-auth";
++import { Alert, Card, LinkButton } from "@/components/ui";
++
++export default async function ConfirmEmailPage({
++  searchParams,
++}: {
++  searchParams: Promise<{ token?: string; returnTo?: string }>;
++}) {
++  const query = await searchParams;
++  const token = query.token;
++  const returnTo = safeReturnTo(query.returnTo);
++
++  if (!token || token.length < 20) {
++    return (
++      <Result
++        ok={false}
++        message="Ten link nie jest obsługiwany. Wpisz sześciocyfrowy kod na stronie weryfikacji."
++        href="/weryfikacja"
++      />
++    );
++  }
++
++  const [verification] = await db
++    .select()
++    .from(userVerifications)
++    .where(eq(userVerifications.emailToken, token))
++    .limit(1);
++
++  if (
++    !verification ||
++    !verification.emailTokenExpiresAt ||
++    verification.emailTokenExpiresAt < new Date()
++  ) {
++    return (
++      <Result
++        ok={false}
++        message="Kod lub link jest nieprawidłowy albo wygasł."
++        href="/weryfikacja"
++      />
++    );
++  }
+ 
+-export default async function ConfirmEmailPage({ searchParams }: { searchParams: Promise<{ token?: string }> }) {
+-  const token = (await searchParams).token;
+-  if (!token) return <Result ok={false} message="Brak tokenu aktywacyjnego." />;
+-  const [verification] = await db.select().from(userVerifications).where(eq(userVerifications.emailToken, token)).limit(1);
+-  if (!verification || !verification.emailTokenExpiresAt || verification.emailTokenExpiresAt < new Date()) return <Result ok={false} message="Link jest nieprawidłowy lub wygasł." />;
+   await db.transaction(async (tx) => {
+-    await tx.update(users).set({ emailVerifiedAt: new Date(), updatedAt: new Date() }).where(eq(users.id, verification.userId));
+-    await tx.update(userVerifications).set({ emailToken: null, emailTokenExpiresAt: null, updatedAt: new Date() }).where(eq(userVerifications.id, verification.id));
++    await tx
++      .update(users)
++      .set({ emailVerifiedAt: new Date(), updatedAt: new Date() })
++      .where(eq(users.id, verification.userId));
++    await tx
++      .update(userVerifications)
++      .set({
++        emailToken: null,
++        emailTokenExpiresAt: null,
++        updatedAt: new Date(),
++      })
++      .where(eq(userVerifications.id, verification.id));
+   });
+-  const [user] = await db.select().from(users).where(eq(users.id, verification.userId)).limit(1);
+-  if (user?.phoneVerifiedAt && user.status === "nowe") await db.update(users).set({ status: "aktywne", updatedAt: new Date() }).where(eq(users.id, user.id));
+-  return <Result ok message="Adres e-mail został potwierdzony." />;
++
++  const [user] = await db
++    .select()
++    .from(users)
++    .where(eq(users.id, verification.userId))
++    .limit(1);
++
++  if (user && shouldActivateAccount(user)) {
++    await db
++      .update(users)
++      .set({ status: "aktywne", updatedAt: new Date() })
++      .where(eq(users.id, user.id));
++  }
++
++  const complete = Boolean(user && hasRequiredContactVerification(user));
++
++  return (
++    <Result
++      ok
++      message={
++        complete
++          ? "Adres e-mail został potwierdzony. Weryfikacja jest zakończona."
++          : "Adres e-mail został potwierdzony. Potwierdź jeszcze wymagany drugi kanał."
++      }
++      href={complete ? returnTo : `/weryfikacja?returnTo=${encodeURIComponent(returnTo)}`}
++    />
++  );
+ }
+ 
+-function Result({ ok, message }: { ok: boolean; message: string }) {
+-  return <main className="mx-auto max-w-lg px-4 py-16"><Card className="p-8"><Alert tone={ok ? "success" : "danger"}>{message}</Alert><LinkButton href={ok ? "/weryfikacja" : "/"} className="mt-5">{ok ? "Dokończ weryfikację" : "Wróć na stronę główną"}</LinkButton></Card></main>;
++function Result({
++  ok,
++  message,
++  href,
++}: {
++  ok: boolean;
++  message: string;
++  href: string;
++}) {
++  return (
++    <main className="mx-auto max-w-lg px-4 py-16">
++      <Card className="p-8">
++        <Alert tone={ok ? "success" : "danger"}>{message}</Alert>
++        <LinkButton href={href} className="mt-5">
++          {ok ? "Kontynuuj" : "Wróć"}
++        </LinkButton>
++      </Card>
++    </main>
++  );
+ }
+diff --git a/src/components/bidding.tsx b/src/components/bidding.tsx
+index 3419d92..98b1ef2 100644
+--- a/src/components/bidding.tsx
++++ b/src/components/bidding.tsx
+@@ -267,7 +267,7 @@ export function BidPanel({
+               href={verificationUrl}
+               className="mt-3 inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-brand-800 px-4 text-sm font-bold text-white"
+             >
+-              Dokończ konto i wróć do oferty
++              Zweryfikuj kontakt i wróć do oferty
+             </Link>
+           )}
+         </div>
+diff --git a/src/components/verification-forms.tsx b/src/components/verification-forms.tsx
+index 218aa15..ada38ac 100644
+--- a/src/components/verification-forms.tsx
++++ b/src/components/verification-forms.tsx
+@@ -1,63 +1,279 @@
+ "use client";
+ 
+-import { useActionState, useEffect, useState, useTransition } from "react";
++import Link from "next/link";
++import {
++  useActionState,
++  useEffect,
++  useState,
++  useTransition,
++} from "react";
+ import { useRouter } from "next/navigation";
+-import { confirmEmailAction, resendEmailVerificationAction, verifyPhoneAction, resendPhoneCodeAction, type ActionResult } from "@/actions/auth";
+-import { Button, Card, inputClass, Alert } from "@/components/ui";
++import {
++  confirmEmailAction,
++  resendEmailVerificationAction,
++  resendPhoneCodeAction,
++  startContactVerificationAction,
++  verifyPhoneAction,
++  type ActionResult,
++} from "@/actions/auth";
++import { Alert, Button, Card, Field, inputClass } from "@/components/ui";
++import type { ContactVerificationMode } from "@/lib/contact-verification";
+ 
+ const initial: ActionResult = { ok: false };
+ 
+-export function EmailVerificationForm({ devToken, verified }: { devToken?: string; verified: boolean }) {
++export function ContactVerificationSetupForm({
++  mode,
++  currentEmail,
++  currentPhone,
++  emailVerified,
++  phoneVerified,
++  termsAccepted,
++  returnTo,
++}: {
++  mode: ContactVerificationMode;
++  currentEmail?: string;
++  currentPhone?: string;
++  emailVerified: boolean;
++  phoneVerified: boolean;
++  termsAccepted: boolean;
++  returnTo: string;
++}) {
++  const router = useRouter();
++  const [state, action, pending] = useActionState(
++    startContactVerificationAction,
++    initial,
++  );
++  const [method, setMethod] = useState<"email" | "phone">("email");
++
++  useEffect(() => {
++    if (state.ok) router.refresh();
++  }, [state.ok, router]);
++
++  const showEmail =
++    !emailVerified &&
++    (mode === "both" || mode === "email" || (mode === "either" && method === "email"));
++  const showPhone =
++    !phoneVerified &&
++    (mode === "both" || mode === "phone" || (mode === "either" && method === "phone"));
++
++  return (
++    <Card className="p-6">
++      <h2 className="text-lg font-bold text-ink">Podaj dane do weryfikacji</h2>
++      <p className="mt-2 text-sm leading-6 text-slate-600">
++        Konto z Facebooka jest już aktywne do przeglądania. Dane kontaktowe są
++        potrzebne dopiero przed pierwszą wiążącą ofertą lub wystawieniem przedmiotu.
++      </p>
++
++      {mode === "either" && (
++        <fieldset className="mt-5">
++          <legend className="text-sm font-semibold text-ink">
++            Wybierz sposób weryfikacji
++          </legend>
++          <div className="mt-2 grid gap-2 sm:grid-cols-2">
++            <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-200 p-3 text-sm">
++              <input
++                type="radio"
++                name="verification-method-ui"
++                checked={method === "email"}
++                onChange={() => setMethod("email")}
++                className="accent-brand-700"
++              />
++              Kod na e-mail
++            </label>
++            <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-200 p-3 text-sm">
++              <input
++                type="radio"
++                name="verification-method-ui"
++                checked={method === "phone"}
++                onChange={() => setMethod("phone")}
++                className="accent-brand-700"
++              />
++              Kod SMS
++            </label>
++          </div>
++        </fieldset>
++      )}
++
++      {state.error && (
++        <div className="mt-4">
++          <Alert tone="danger">{state.error}</Alert>
++        </div>
++      )}
++      {state.ok && (
++        <div className="mt-4">
++          <Alert tone="success">Kod został wysłany.</Alert>
++        </div>
++      )}
++
++      <form action={action} className="mt-5 grid gap-4">
++        <input
++          type="hidden"
++          name="method"
++          value={mode === "either" ? method : mode}
++        />
++        <input type="hidden" name="returnTo" value={returnTo} />
++
++        {showEmail && (
++          <Field
++            label="Adres e-mail"
++            htmlFor="verification-email"
++            required
++            hint="Na ten adres wyślemy sześciocyfrowy kod."
++          >
++            <input
++              id="verification-email"
++              name="email"
++              type="email"
++              required
++              defaultValue={currentEmail}
++              autoComplete="email"
++              className={inputClass}
++              placeholder="twoj@email.pl"
++            />
++          </Field>
++        )}
++
++        {showPhone && (
++          <Field
++            label="Numer telefonu"
++            htmlFor="verification-phone"
++            required
++            hint="Numer nie będzie widoczny publicznie."
++          >
++            <input
++              id="verification-phone"
++              name="phone"
++              type="tel"
++              required
++              defaultValue={currentPhone}
++              autoComplete="tel"
++              inputMode="tel"
++              className={inputClass}
++              placeholder="+48 500 000 000"
++            />
++          </Field>
++        )}
++
++        {!termsAccepted && (
++          <label className="flex gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm leading-6">
++            <input
++              type="checkbox"
++              name="acceptRules"
++              required
++              className="mt-1 h-4 w-4 accent-brand-700"
++            />
++            <span>
++              Potwierdzam, że mam co najmniej 18 lat, akceptuję{" "}
++              <Link
++                href="/prawne/regulamin"
++                target="_blank"
++                className="font-semibold text-brand-700 underline"
++              >
++                regulamin
++              </Link>{" "}
++              i zapoznałem(-am) się z{" "}
++              <Link
++                href="/prawne/polityka-prywatnosci"
++                target="_blank"
++                className="font-semibold text-brand-700 underline"
++              >
++                polityką prywatności
++              </Link>
++              .
++            </span>
++          </label>
++        )}
++
++        <Button type="submit" size="lg" disabled={pending}>
++          {pending ? "Wysyłanie…" : showEmail && showPhone ? "Wyślij oba kody" : "Wyślij kod"}
++        </Button>
++      </form>
++    </Card>
++  );
++}
++
++export function EmailVerificationForm({
++  devCode,
++  verified,
++  email,
++  returnTo,
++}: {
++  devCode?: string;
++  verified: boolean;
++  email: string;
++  returnTo: string;
++}) {
+   const router = useRouter();
+   const [state, formAction, pending] = useActionState(confirmEmailAction, initial);
+-  const [currentDevToken, setCurrentDevToken] = useState(devToken);
++  const [currentDevCode, setCurrentDevCode] = useState(devCode);
+   const [isResending, startResend] = useTransition();
+   const [resendMsg, setResendMsg] = useState<string | null>(null);
+-  useEffect(() => { if (state.ok) router.refresh(); }, [state.ok, router]);
++
++  useEffect(() => {
++    if (state.ok) router.refresh();
++  }, [state.ok, router]);
+ 
+   return (
+     <Card className="p-6">
+-      <h2 className="text-lg font-bold text-ink">1. Potwierdź adres e-mail</h2>
++      <h2 className="text-lg font-bold text-ink">Potwierdź adres e-mail</h2>
+       {verified || state.ok ? (
+         <Alert tone="success">Adres e-mail został potwierdzony.</Alert>
+       ) : (
+         <>
+           <p className="mt-2 text-sm text-slate-600">
+-            Wysłaliśmy link aktywacyjny na Twój adres e-mail. Link jest ważny przez 24 godziny.
++            Wpisz sześciocyfrowy kod wysłany na <strong>{email}</strong>.
+           </p>
+-          {currentDevToken && (
++          {currentDevCode && (
+             <div className="mt-3 rounded-xl bg-amber-50 p-3 text-xs text-warning">
+-              <p className="font-bold">Tryb lokalny - dostawca e-mail nie jest skonfigurowany</p>
+-              <p className="mt-1 break-all">Token potwierdzający: {currentDevToken}</p>
++              <p className="font-bold">Tryb lokalny e-mail</p>
++              <p className="mt-1">
++                Kod: <strong className="text-base">{currentDevCode}</strong>
++              </p>
+             </div>
+           )}
+-          {state.error && <div className="mt-3"><Alert tone="danger">{state.error}</Alert></div>}
+-          {resendMsg && <div className="mt-3"><Alert tone="info">{resendMsg}</Alert></div>}
+-          {currentDevToken && (
+-            <form action={formAction} className="mt-4 flex flex-col gap-3 sm:flex-row">
+-              <input type="hidden" name="token" value={currentDevToken} />
+-              <Button type="submit" disabled={pending}>
+-                {pending ? "Potwierdzanie…" : "Potwierdź e-mail lokalnie"}
+-              </Button>
+-            </form>
++          {state.error && (
++            <div className="mt-3">
++              <Alert tone="danger">{state.error}</Alert>
++            </div>
+           )}
++          {resendMsg && (
++            <div className="mt-3">
++              <Alert tone="info">{resendMsg}</Alert>
++            </div>
++          )}
++          <form action={formAction} className="mt-4 flex flex-col gap-3 sm:flex-row">
++            <input type="hidden" name="returnTo" value={returnTo} />
++            <input
++              name="code"
++              required
++              inputMode="numeric"
++              pattern="[0-9]{6}"
++              maxLength={6}
++              className={inputClass}
++              placeholder="123456"
++              aria-label="Kod e-mail"
++            />
++            <Button type="submit" disabled={pending}>
++              {pending ? "Potwierdzanie…" : "Potwierdź e-mail"}
++            </Button>
++          </form>
+           <button
+             type="button"
+             disabled={isResending}
+             onClick={() => {
+               startResend(async () => {
+-                const res = await resendEmailVerificationAction();
+-                if (res.ok) {
+-                  setResendMsg("Wysłano nowy link aktywacyjny.");
+-                  if (res.devHint) setCurrentDevToken(res.devHint);
+-                } else {
+-                  setResendMsg(res.error ?? "Nie udało się wysłać linku.");
+-                }
++                const result = await resendEmailVerificationAction();
++                setResendMsg(
++                  result.ok
++                    ? "Wysłano nowy kod e-mail."
++                    : result.error ?? "Nie udało się wysłać kodu.",
++                );
++                if (result.devHint) setCurrentDevCode(result.devHint);
+               });
+             }}
+-            className="mt-3 text-sm font-semibold text-brand-600 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
++            className="mt-3 text-sm font-semibold text-brand-600 hover:underline disabled:opacity-50"
+           >
+-            {isResending ? "Wysyłanie…" : "Wyślij link ponownie"}
++            {isResending ? "Wysyłanie…" : "Wyślij kod ponownie"}
+           </button>
+         </>
+       )}
+@@ -65,34 +281,69 @@ export function EmailVerificationForm({ devToken, verified }: { devToken?: strin
+   );
+ }
+ 
+-export function PhoneVerificationForm({ devCode, verified }: { devCode?: string; verified: boolean }) {
++export function PhoneVerificationForm({
++  devCode,
++  verified,
++  phone,
++  returnTo,
++}: {
++  devCode?: string;
++  verified: boolean;
++  phone: string;
++  returnTo: string;
++}) {
+   const router = useRouter();
+   const [state, formAction, pending] = useActionState(verifyPhoneAction, initial);
+   const [currentDevCode, setCurrentDevCode] = useState(devCode);
+   const [isResending, startResend] = useTransition();
+   const [resendMsg, setResendMsg] = useState<string | null>(null);
+-  useEffect(() => { if (state.ok) router.refresh(); }, [state.ok, router]);
++
++  useEffect(() => {
++    if (state.ok) router.refresh();
++  }, [state.ok, router]);
+ 
+   return (
+     <Card className="p-6">
+-      <h2 className="text-lg font-bold text-ink">2. Potwierdź numer telefonu</h2>
++      <h2 className="text-lg font-bold text-ink">Potwierdź numer telefonu</h2>
+       {verified || state.ok ? (
+         <Alert tone="success">Numer telefonu został potwierdzony.</Alert>
+       ) : (
+         <>
+-          <p className="mt-2 text-sm text-slate-600">Wpisz 6-cyfrowy kod SMS wysłany na Twój numer telefonu.</p>
++          <p className="mt-2 text-sm text-slate-600">
++            Wpisz sześciocyfrowy kod SMS wysłany na <strong>{phone}</strong>.
++          </p>
+           {currentDevCode && (
+             <div className="mt-3 rounded-xl bg-amber-50 p-3 text-xs text-warning">
+-              <p className="font-bold">Panel testowy (tryb deweloperski, brak skonfigurowanego operatora SMS)</p>
+-              <p className="mt-1">Twój kod: <strong className="text-base">{currentDevCode}</strong></p>
++              <p className="font-bold">Tryb lokalny SMS</p>
++              <p className="mt-1">
++                Kod: <strong className="text-base">{currentDevCode}</strong>
++              </p>
++            </div>
++          )}
++          {state.error && (
++            <div className="mt-3">
++              <Alert tone="danger">{state.error}</Alert>
++            </div>
++          )}
++          {resendMsg && (
++            <div className="mt-3">
++              <Alert tone="info">{resendMsg}</Alert>
+             </div>
+           )}
+-          {state.error && <div className="mt-3"><Alert tone="danger">{state.error}</Alert></div>}
+-          {resendMsg && <div className="mt-3"><Alert tone="info">{resendMsg}</Alert></div>}
+           <form action={formAction} className="mt-4 flex flex-col gap-3 sm:flex-row">
+-            <input name="code" required maxLength={6} placeholder="123456" className={`${inputClass} sm:max-w-[160px]`} />
++            <input type="hidden" name="returnTo" value={returnTo} />
++            <input
++              name="code"
++              required
++              inputMode="numeric"
++              pattern="[0-9]{6}"
++              maxLength={6}
++              className={inputClass}
++              placeholder="123456"
++              aria-label="Kod SMS"
++            />
+             <Button type="submit" disabled={pending}>
+-              {pending ? "Weryfikacja…" : "Potwierdź kod"}
++              {pending ? "Potwierdzanie…" : "Potwierdź telefon"}
+             </Button>
+           </form>
+           <button
+@@ -100,18 +351,18 @@ export function PhoneVerificationForm({ devCode, verified }: { devCode?: string;
+             disabled={isResending}
+             onClick={() => {
+               startResend(async () => {
+-                const res = await resendPhoneCodeAction();
+-                if (res.ok) {
+-                  setResendMsg("Wysłano nowy kod SMS.");
+-                  if (res.devHint) setCurrentDevCode(res.devHint);
+-                } else {
+-                  setResendMsg(res.error ?? "Nie udało się wysłać kodu.");
+-                }
++                const result = await resendPhoneCodeAction();
++                setResendMsg(
++                  result.ok
++                    ? "Wysłano nowy kod SMS."
++                    : result.error ?? "Nie udało się wysłać kodu.",
++                );
++                if (result.devHint) setCurrentDevCode(result.devHint);
+               });
+             }}
+-            className="mt-3 text-sm font-semibold text-brand-600 hover:underline"
++            className="mt-3 text-sm font-semibold text-brand-600 hover:underline disabled:opacity-50"
+           >
+-            Wyślij kod ponownie
++            {isResending ? "Wysyłanie…" : "Wyślij kod ponownie"}
+           </button>
+         </>
+       )}
+diff --git a/src/lib/__tests__/auth-policy.test.ts b/src/lib/__tests__/auth-policy.test.ts
+index 1e6cdf7..73a3f5a 100644
+--- a/src/lib/__tests__/auth-policy.test.ts
++++ b/src/lib/__tests__/auth-policy.test.ts
+@@ -1,9 +1,18 @@
+-import { describe, expect, it } from "vitest";
++import { afterEach, describe, expect, it } from "vitest";
+ import {
+   isSafeInternalReturnTo,
+   normalizePhone,
+   shouldActivateAccount,
+ } from "@/lib/auth-policy";
++import {
++  hasRequiredContactVerification,
++  isTechnicalEmail,
++  isTechnicalPhone,
++} from "@/lib/contact-verification";
++
++afterEach(() => {
++  delete process.env.CONTACT_VERIFICATION_MODE;
++});
+ 
+ describe("reguły uwierzytelnienia", () => {
+   it("normalizuje polski numer telefonu", () => {
+@@ -12,10 +21,12 @@ describe("reguły uwierzytelnienia", () => {
+   });
+ 
+   it("odrzuca zbyt krótki numer telefonu", () => {
+-    expect(() => normalizePhone("123")).toThrow("Nieprawidłowy numer telefonu");
++    expect(() => normalizePhone("123")).toThrow(
++      "Nieprawidłowy numer telefonu",
++    );
+   });
+ 
+-  it("aktywuje konto dopiero po potwierdzeniu e-maila i telefonu", () => {
++  it("domyślnie wymaga e-maila i telefonu", () => {
+     const now = new Date();
+     expect(
+       shouldActivateAccount({
+@@ -33,6 +44,30 @@ describe("reguły uwierzytelnienia", () => {
+     ).toBe(false);
+   });
+ 
++  it("w trybie either akceptuje e-mail albo telefon", () => {
++    process.env.CONTACT_VERIFICATION_MODE = "either";
++    const now = new Date();
++    expect(
++      hasRequiredContactVerification({
++        emailVerifiedAt: now,
++        phoneVerifiedAt: null,
++      }),
++    ).toBe(true);
++    expect(
++      hasRequiredContactVerification({
++        emailVerifiedAt: null,
++        phoneVerifiedAt: now,
++      }),
++    ).toBe(true);
++  });
++
++  it("rozpoznaje techniczne dane kont społecznościowych", () => {
++    expect(isTechnicalEmail("facebook-abc@users.invalid")).toBe(true);
++    expect(isTechnicalEmail("uzytkownik@example.pl")).toBe(false);
++    expect(isTechnicalPhone("pending-abc")).toBe(true);
++    expect(isTechnicalPhone("+48600700800")).toBe(false);
++  });
++
+   it("pozwala wracać tylko do wewnętrznych ścieżek", () => {
+     expect(isSafeInternalReturnTo("/aukcje/123")).toBe(true);
+     expect(isSafeInternalReturnTo("//evil.example")).toBe(false);
+diff --git a/src/lib/auth-policy.ts b/src/lib/auth-policy.ts
+index e87b64b..52e3a26 100644
+--- a/src/lib/auth-policy.ts
++++ b/src/lib/auth-policy.ts
+@@ -1,3 +1,5 @@
++import { hasRequiredContactVerification } from "@/lib/contact-verification";
++
+ export function normalizePhone(value: string): string {
+   const digits = value.replace(/\D/g, "");
+   if (digits.length < 9 || digits.length > 15) {
+@@ -11,11 +13,7 @@ export function shouldActivateAccount(input: {
+   phoneVerifiedAt: Date | null;
+   status: string;
+ }): boolean {
+-  return Boolean(
+-    input.emailVerifiedAt &&
+-      input.phoneVerifiedAt &&
+-      input.status === "nowe",
+-  );
++  return input.status === "nowe" && hasRequiredContactVerification(input);
+ }
+ 
+ export function isSafeInternalReturnTo(value: string | null | undefined): boolean {
+diff --git a/src/lib/auth.ts b/src/lib/auth.ts
+index 4ced5a5..7e727cf 100644
+--- a/src/lib/auth.ts
++++ b/src/lib/auth.ts
+@@ -5,6 +5,7 @@ import { createHash, randomBytes } from "node:crypto";
+ import { db } from "@/db";
+ import { sessions, users } from "@/db/schema";
+ import { eq, and, gt } from "drizzle-orm";
++import { hasRequiredContactVerification } from "@/lib/contact-verification";
+ 
+ const SESSION_COOKIE = process.env.NODE_ENV === "production" ? "__Host-ld_session" : "ld_session";
+ const SESSION_DAYS = 30;
+@@ -41,4 +42,6 @@ export async function getCurrentUser() {
+ 
+ export async function requireUser() { const user = await getCurrentUser(); if (!user) throw new Error("UNAUTHORIZED"); return user; }
+ export async function requireAdmin() { const user = await getCurrentUser(); if (!user || user.role !== "admin") throw new Error("FORBIDDEN"); return user; }
+-export function isFullyVerified(user: { emailVerifiedAt: Date | null; phoneVerifiedAt: Date | null }) { return Boolean(user.emailVerifiedAt && user.phoneVerifiedAt); }
++export function isFullyVerified(user: { emailVerifiedAt: Date | null; phoneVerifiedAt: Date | null }) {
++  return hasRequiredContactVerification(user);
++}
+diff --git a/src/lib/contact-verification.ts b/src/lib/contact-verification.ts
+new file mode 100644
+index 0000000..4ad5ed6
+--- /dev/null
++++ b/src/lib/contact-verification.ts
+@@ -0,0 +1,44 @@
++export type ContactVerificationMode = "both" | "either" | "email" | "phone";
++
++export type ContactVerificationState = {
++  emailVerifiedAt: Date | null;
++  phoneVerifiedAt: Date | null;
++};
++
++export function getContactVerificationMode(): ContactVerificationMode {
++  const value = process.env.CONTACT_VERIFICATION_MODE?.trim().toLowerCase();
++  if (value === "either" || value === "email" || value === "phone") {
++    return value;
++  }
++  return "both";
++}
++
++export function isTechnicalEmail(value: string | null | undefined): boolean {
++  return !value || value.toLowerCase().endsWith("@users.invalid");
++}
++
++export function isTechnicalPhone(value: string | null | undefined): boolean {
++  return !value || value.startsWith("pending-");
++}
++
++export function hasRequiredContactVerification(
++  user: ContactVerificationState,
++  mode: ContactVerificationMode = getContactVerificationMode(),
++): boolean {
++  const email = Boolean(user.emailVerifiedAt);
++  const phone = Boolean(user.phoneVerifiedAt);
++
++  if (mode === "email") return email;
++  if (mode === "phone") return phone;
++  if (mode === "either") return email || phone;
++  return email && phone;
++}
++
++export function getContactVerificationDescription(
++  mode: ContactVerificationMode = getContactVerificationMode(),
++): string {
++  if (mode === "email") return "potwierdzony adres e-mail";
++  if (mode === "phone") return "potwierdzony numer telefonu";
++  if (mode === "either") return "potwierdzony e-mail albo numer telefonu";
++  return "potwierdzony e-mail i numer telefonu";
++}
+diff --git a/src/lib/email.ts b/src/lib/email.ts
+index 9afa435..372a808 100644
+--- a/src/lib/email.ts
++++ b/src/lib/email.ts
+@@ -12,33 +12,68 @@ export interface EmailProvider {
+ 
+ class DevEmailProvider implements EmailProvider {
+   async send(message: EmailMessage) {
+-    console.log(`[DEV EMAIL] do ${message.to}: ${message.subject}\n${message.text}`);
++    console.log(
++      `[DEV EMAIL] do ${message.to}: ${message.subject}\n${message.text}`,
++    );
+     return { ok: true };
+   }
+ }
+ 
+ class HttpEmailProvider implements EmailProvider {
++  constructor(private readonly defaultUrl?: string) {}
++
+   async send(message: EmailMessage): Promise<{ ok: boolean }> {
+-    const url = process.env.EMAIL_API_URL?.trim();
++    const url = process.env.EMAIL_API_URL?.trim() || this.defaultUrl;
+     const apiKey = process.env.EMAIL_API_KEY?.trim();
+     const from = process.env.EMAIL_FROM?.trim();
+-    if (!url || !apiKey || !from) throw new Error("Brak EMAIL_API_URL, EMAIL_API_KEY lub EMAIL_FROM.");
++
++    if (!url || !apiKey || !from) {
++      throw new Error("Brak EMAIL_API_URL, EMAIL_API_KEY lub EMAIL_FROM.");
++    }
++
+     const response = await fetch(url, {
+       method: "POST",
+-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+-      body: JSON.stringify({ from, to: [message.to], subject: message.subject, text: message.text }),
++      headers: {
++        "Content-Type": "application/json",
++        Authorization: `Bearer ${apiKey}`,
++      },
++      body: JSON.stringify({
++        from,
++        to: [message.to],
++        subject: message.subject,
++        text: message.text,
++      }),
+     });
+-    if (!response.ok) throw new Error(`Dostawca e-mail zwrócił HTTP ${response.status}.`);
++
++    if (!response.ok) {
++      const details = (await response.text()).slice(0, 500);
++      throw new Error(
++        `Dostawca e-mail zwrócił HTTP ${response.status}: ${details}`,
++      );
++    }
+     return { ok: true };
+   }
+ }
+ 
+ export function getEmailProvider(): EmailProvider {
+-  const provider = process.env.EMAIL_PROVIDER || process.env.EMAIL_MODE || "dev";
+-  return provider === "dev" ? new DevEmailProvider() : new HttpEmailProvider();
++  const provider = (
++    process.env.EMAIL_PROVIDER ||
++    process.env.EMAIL_MODE ||
++    "dev"
++  ).toLowerCase();
++
++  if (provider === "dev") return new DevEmailProvider();
++  if (provider === "resend") {
++    return new HttpEmailProvider("https://api.resend.com/emails");
++  }
++  return new HttpEmailProvider();
+ }
+ 
+ export function isEmailDevMode() {
+-  const provider = process.env.EMAIL_PROVIDER || process.env.EMAIL_MODE || "dev";
++  const provider = (
++    process.env.EMAIL_PROVIDER ||
++    process.env.EMAIL_MODE ||
++    "dev"
++  ).toLowerCase();
+   return provider === "dev";
+ }
+diff --git a/src/lib/notification-outbox.ts b/src/lib/notification-outbox.ts
+index 40d3391..b4660c5 100644
+--- a/src/lib/notification-outbox.ts
++++ b/src/lib/notification-outbox.ts
+@@ -1,9 +1,12 @@
+ import "server-only";
++
+ import { and, asc, eq, lte } from "drizzle-orm";
++
+ import { db } from "@/db";
+ import { notificationOutbox, users } from "@/db/schema";
+ import { getEmailProvider } from "@/lib/email";
+ import { getSmsProvider } from "@/lib/sms";
++import { isTechnicalEmail, isTechnicalPhone } from "@/lib/contact-verification";
+ 
+ export type NotificationTemplate =
+   | "LISTING_APPROVED"
+@@ -20,6 +23,15 @@ export type NotificationTemplate =
+   | "TRANSACTION_COMPLETED"
+   | "SUPPORT_CASE_RESPONSE_REQUIRED";
+ 
++function isTechnicalRecipient(
++  channel: string,
++  recipient: string | null | undefined,
++) {
++  if (channel === "EMAIL") return isTechnicalEmail(recipient);
++  if (channel === "SMS") return isTechnicalPhone(recipient);
++  return !recipient;
++}
++
+ export async function enqueueUserNotification(input: {
+   userId: string;
+   template: NotificationTemplate;
+@@ -29,58 +41,120 @@ export async function enqueueUserNotification(input: {
+   channels?: ("EMAIL" | "SMS")[];
+   dedupeBase?: string;
+ }) {
+-  const [user] = await db.select().from(users).where(eq(users.id, input.userId)).limit(1);
++  const [user] = await db
++    .select()
++    .from(users)
++    .where(eq(users.id, input.userId))
++    .limit(1);
+   if (!user) return;
++
+   const channels = input.channels ?? ["EMAIL"];
+   for (const channel of channels) {
+     const recipient = channel === "EMAIL" ? user.email : user.phone;
+-    if (!recipient || recipient.startsWith("pending-")) continue;
+-    await db.insert(notificationOutbox).values({
+-      userId: user.id,
+-      channel,
+-      template: input.template,
+-      recipient,
+-      subject: channel === "EMAIL" ? input.subject : null,
+-      body: input.body,
+-      actionUrl: input.actionUrl,
+-      dedupeKey: input.dedupeBase ? `${input.dedupeBase}:${channel}` : null,
+-    }).onConflictDoNothing({ target: notificationOutbox.dedupeKey });
++    if (isTechnicalRecipient(channel, recipient)) continue;
++
++    await db
++      .insert(notificationOutbox)
++      .values({
++        userId: user.id,
++        channel,
++        template: input.template,
++        recipient,
++        subject: channel === "EMAIL" ? input.subject : null,
++        body: input.body,
++        actionUrl: input.actionUrl,
++        dedupeKey: input.dedupeBase
++          ? `${input.dedupeBase}:${channel}`
++          : null,
++      })
++      .onConflictDoNothing({ target: notificationOutbox.dedupeKey });
+   }
+ }
+ 
+ export async function processNotificationOutbox(limit = 50) {
+-  const jobs = await db.select().from(notificationOutbox)
+-    .where(and(eq(notificationOutbox.status, "PENDING"), lte(notificationOutbox.nextAttemptAt, new Date())))
+-    .orderBy(asc(notificationOutbox.createdAt)).limit(limit);
++  const jobs = await db
++    .select()
++    .from(notificationOutbox)
++    .where(
++      and(
++        eq(notificationOutbox.status, "PENDING"),
++        lte(notificationOutbox.nextAttemptAt, new Date()),
++      ),
++    )
++    .orderBy(asc(notificationOutbox.createdAt))
++    .limit(limit);
++
+   let sent = 0;
+   let failed = 0;
++
+   for (const job of jobs) {
+-    await db.update(notificationOutbox).set({ status: "PROCESSING", attempts: job.attempts + 1, updatedAt: new Date() }).where(eq(notificationOutbox.id, job.id));
++    if (isTechnicalRecipient(job.channel, job.recipient)) {
++      await db
++        .update(notificationOutbox)
++        .set({
++          status: "FAILED",
++          attempts: job.attempts + 1,
++          lastError: "Pominięto techniczny adres odbiorcy.",
++          updatedAt: new Date(),
++        })
++        .where(eq(notificationOutbox.id, job.id));
++      failed += 1;
++      continue;
++    }
++
++    await db
++      .update(notificationOutbox)
++      .set({
++        status: "PROCESSING",
++        attempts: job.attempts + 1,
++        updatedAt: new Date(),
++      })
++      .where(eq(notificationOutbox.id, job.id));
++
+     try {
+       if (job.channel === "EMAIL") {
+         await getEmailProvider().send({
+           to: job.recipient,
+           subject: job.subject || "LicytujDobro",
+-          text: `${job.body}\n\n${job.actionUrl ? `Otwórz: ${job.actionUrl}` : ""}`.trim(),
++          text: `${job.body}\n\n${
++            job.actionUrl ? `Otwórz: ${job.actionUrl}` : ""
++          }`.trim(),
+         });
+       } else if (job.channel === "SMS") {
+-        await getSmsProvider().send(job.recipient, `${job.body}${job.actionUrl ? ` ${job.actionUrl}` : ""}`);
++        await getSmsProvider().send(
++          job.recipient,
++          `${job.body}${job.actionUrl ? ` ${job.actionUrl}` : ""}`,
++        );
+       } else {
+         throw new Error(`Nieobsługiwany kanał: ${job.channel}`);
+       }
+-      await db.update(notificationOutbox).set({ status: "SENT", sentAt: new Date(), lastError: null, updatedAt: new Date() }).where(eq(notificationOutbox.id, job.id));
++
++      await db
++        .update(notificationOutbox)
++        .set({
++          status: "SENT",
++          sentAt: new Date(),
++          lastError: null,
++          updatedAt: new Date(),
++        })
++        .where(eq(notificationOutbox.id, job.id));
+       sent += 1;
+     } catch (error) {
+       const attempts = job.attempts + 1;
+       const retryMinutes = Math.min(60, 2 ** Math.min(attempts, 5));
+-      await db.update(notificationOutbox).set({
+-        status: attempts >= 5 ? "FAILED" : "PENDING",
+-        lastError: (error as Error).message.slice(0, 2000),
+-        nextAttemptAt: new Date(Date.now() + retryMinutes * 60_000),
+-        updatedAt: new Date(),
+-      }).where(eq(notificationOutbox.id, job.id));
++
++      await db
++        .update(notificationOutbox)
++        .set({
++          status: attempts >= 5 ? "FAILED" : "PENDING",
++          lastError: (error as Error).message.slice(0, 2000),
++          nextAttemptAt: new Date(Date.now() + retryMinutes * 60_000),
++          updatedAt: new Date(),
++        })
++        .where(eq(notificationOutbox.id, job.id));
+       failed += 1;
+     }
+   }
++
+   return { processed: jobs.length, sent, failed };
+ }
+diff --git a/src/lib/quick-auth.ts b/src/lib/quick-auth.ts
+index 46053b4..4ba6cf4 100644
+--- a/src/lib/quick-auth.ts
++++ b/src/lib/quick-auth.ts
+@@ -1,73 +1,218 @@
+ import "server-only";
++
+ import { createHash, randomBytes } from "crypto";
+ import { and, eq } from "drizzle-orm";
++
+ import { db } from "@/db";
+ import { socialAccounts, userProfiles, users } from "@/db/schema";
+ import { hashPassword } from "@/lib/auth";
++import {
++  hasRequiredContactVerification,
++  isTechnicalEmail,
++} from "@/lib/contact-verification";
+ 
+ export function safeReturnTo(value: string | null | undefined) {
+-  if (!value || !value.startsWith("/") || value.startsWith("//")) return "/dashboard";
++  if (!value || !value.startsWith("/") || value.startsWith("//")) {
++    return "/dashboard";
++  }
+   return value.slice(0, 500);
+ }
+ 
+ export function hashLoginCode(email: string, code: string) {
+-  const secret = process.env.EMAIL_LOGIN_SECRET || process.env.SESSION_SECRET || "dev-email-login-secret";
+-  return createHash("sha256").update(`${email.toLowerCase()}:${code}:${secret}`).digest("hex");
++  const secret =
++    process.env.EMAIL_LOGIN_SECRET ||
++    process.env.SESSION_SECRET ||
++    "dev-email-login-secret";
++
++  return createHash("sha256")
++    .update(`${email.toLowerCase()}:${code}:${secret}`)
++    .digest("hex");
++}
++
++function createInternalEmail(provider: string, providerAccountId: string) {
++  const identifier = createHash("sha256")
++    .update(`${provider}:${providerAccountId}`)
++    .digest("hex")
++    .slice(0, 48);
++
++  return `${provider}-${identifier}@users.invalid`;
++}
++
++
++async function activateIfReady<T extends {
++  id: string;
++  status: string;
++  emailVerifiedAt: Date | null;
++  phoneVerifiedAt: Date | null;
++}>(user: T): Promise<T> {
++  if (user.status !== "nowe" || !hasRequiredContactVerification(user)) {
++    return user;
++  }
++
++  const [updated] = await db
++    .update(users)
++    .set({ status: "aktywne", updatedAt: new Date() })
++    .where(eq(users.id, user.id))
++    .returning();
++
++  return (updated ?? user) as T;
+ }
+ 
+ function baseNickname(name: string, email: string) {
+   const candidate = (name || email.split("@")[0] || "Pomagacz")
+-    .normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 22);
++    .normalize("NFKD")
++    .replace(/[\u0300-\u036f]/g, "")
++    .replace(/[^a-zA-Z0-9_.-]/g, "")
++    .slice(0, 22);
++
+   return candidate.length >= 3 ? candidate : "Pomagacz";
+ }
+ 
+ async function uniqueNickname(name: string, email: string) {
+   const base = baseNickname(name, email);
++
+   for (let index = 0; index < 20; index += 1) {
+-    const value = index === 0 ? base : `${base}${String(index + 1).padStart(2, "0")}`;
+-    const [existing] = await db.select({ id: users.id }).from(users).where(eq(users.nickname, value)).limit(1);
++    const value =
++      index === 0
++        ? base
++        : `${base}${String(index + 1).padStart(2, "0")}`;
++
++    const [existing] = await db
++      .select({ id: users.id })
++      .from(users)
++      .where(eq(users.nickname, value))
++      .limit(1);
++
+     if (!existing) return value;
+   }
++
+   return `Pomagacz${randomBytes(3).toString("hex")}`;
+ }
+ 
+ export async function findOrCreateQuickUser(input: {
+   provider: "google" | "facebook" | "apple" | "email_code";
+   providerAccountId: string;
+-  email: string;
++  email?: string | null;
+   name?: string;
+ }) {
+-  const email = input.email.trim().toLowerCase();
+-  const [linked] = await db.select({ user: users })
+-    .from(socialAccounts).innerJoin(users, eq(users.id, socialAccounts.userId))
+-    .where(and(eq(socialAccounts.provider, input.provider), eq(socialAccounts.providerAccountId, input.providerAccountId))).limit(1);
+-  if (linked?.user) return linked.user;
++  const providerEmail = input.email?.trim().toLowerCase() || null;
++  const storedEmail =
++    providerEmail ?? createInternalEmail(input.provider, input.providerAccountId);
++
++  const [linked] = await db
++    .select({ user: users })
++    .from(socialAccounts)
++    .innerJoin(users, eq(users.id, socialAccounts.userId))
++    .where(
++      and(
++        eq(socialAccounts.provider, input.provider),
++        eq(socialAccounts.providerAccountId, input.providerAccountId),
++      ),
++    )
++    .limit(1);
++
++  if (linked?.user) {
++    if (providerEmail) {
++      await db
++        .update(socialAccounts)
++        .set({ emailAtProvider: providerEmail, updatedAt: new Date() })
++        .where(
++          and(
++            eq(socialAccounts.provider, input.provider),
++            eq(socialAccounts.providerAccountId, input.providerAccountId),
++          ),
++        );
++    }
++
++    if (providerEmail && isTechnicalEmail(linked.user.email)) {
++      const [emailOwner] = await db
++        .select({ id: users.id })
++        .from(users)
++        .where(eq(users.email, providerEmail))
++        .limit(1);
++
++      if (!emailOwner || emailOwner.id === linked.user.id) {
++        const [updatedUser] = await db
++          .update(users)
++          .set({
++            email: providerEmail,
++            emailVerifiedAt: new Date(),
++            updatedAt: new Date(),
++          })
++          .where(eq(users.id, linked.user.id))
++          .returning();
++
++        return activateIfReady(updatedUser ?? linked.user);
++      }
++    }
++
++    return activateIfReady(linked.user);
++  }
++
++  let [user] = await db
++    .select()
++    .from(users)
++    .where(eq(users.email, storedEmail))
++    .limit(1);
+ 
+-  let [user] = await db.select().from(users).where(eq(users.email, email)).limit(1);
+   if (!user) {
+-    const nickname = await uniqueNickname(input.name || "", email);
+-    const firstName = (input.name || nickname).trim().split(/\s+/)[0].slice(0, 120) || "Pomagacz";
++    const nickname = await uniqueNickname(input.name || "", storedEmail);
++    const firstName =
++      (input.name || nickname).trim().split(/\s+/)[0].slice(0, 120) ||
++      "Pomagacz";
+     const passwordHash = await hashPassword(randomBytes(32).toString("hex"));
+-    [user] = await db.insert(users).values({
+-      email,
+-      phone: `pending-${randomBytes(10).toString("hex")}`,
+-      passwordHash,
+-      firstName,
+-      nickname,
+-      city: process.env.PILOT_CITY || "Biłgoraj i okolice",
+-      status: "nowe",
+-      authProvider: input.provider,
+-      emailVerifiedAt: new Date(),
+-      isAdultConfirmed: false,
+-    }).returning();
++
++    [user] = await db
++      .insert(users)
++      .values({
++        email: storedEmail,
++        phone: `pending-${randomBytes(10).toString("hex")}`,
++        passwordHash,
++        firstName,
++        nickname,
++        city: process.env.PILOT_CITY || "Biłgoraj i okolice",
++        status: "nowe",
++        authProvider: input.provider,
++        emailVerifiedAt: providerEmail ? new Date() : null,
++        phoneVerifiedAt: null,
++        isAdultConfirmed: false,
++      })
++      .returning();
++
+     await db.insert(userProfiles).values({ userId: user.id });
++  } else if (providerEmail && !user.emailVerifiedAt) {
++    const [updatedUser] = await db
++      .update(users)
++      .set({ emailVerifiedAt: new Date(), updatedAt: new Date() })
++      .where(eq(users.id, user.id))
++      .returning();
++
++    user = updatedUser ?? user;
+   }
+ 
+-  await db.insert(socialAccounts).values({
+-    userId: user.id,
+-    provider: input.provider,
+-    providerAccountId: input.providerAccountId,
+-    emailAtProvider: email,
+-  }).onConflictDoNothing({ target: [socialAccounts.provider, socialAccounts.providerAccountId] });
+-  return user;
++  await db
++    .insert(socialAccounts)
++    .values({
++      userId: user.id,
++      provider: input.provider,
++      providerAccountId: input.providerAccountId,
++      emailAtProvider: providerEmail,
++    })
++    .onConflictDoNothing({
++      target: [socialAccounts.provider, socialAccounts.providerAccountId],
++    });
++
++  const [finalLinked] = await db
++    .select({ user: users })
++    .from(socialAccounts)
++    .innerJoin(users, eq(users.id, socialAccounts.userId))
++    .where(
++      and(
++        eq(socialAccounts.provider, input.provider),
++        eq(socialAccounts.providerAccountId, input.providerAccountId),
++      ),
++    )
++    .limit(1);
++
++  return activateIfReady(finalLinked?.user ?? user);
+ }
+diff --git a/src/lib/sms.ts b/src/lib/sms.ts
+index 2ba2297..448c042 100644
+--- a/src/lib/sms.ts
++++ b/src/lib/sms.ts
+@@ -1,33 +1,105 @@
+ import "server-only";
+ 
+-export interface SmsProvider { send(phone: string, message: string): Promise<{ ok: boolean }> }
++export interface SmsProvider {
++  send(phone: string, message: string): Promise<{ ok: boolean }>;
++}
+ 
+ class DevSmsProvider implements SmsProvider {
+-  async send(phone: string, message: string) { console.log(`[DEV SMS] do ${phone}: ${message}`); return { ok: true }; }
++  async send(phone: string, message: string) {
++    console.log(`[DEV SMS] do ${phone}: ${message}`);
++    return { ok: true };
++  }
+ }
+ 
+ class HttpSmsProvider implements SmsProvider {
+   async send(phone: string, message: string): Promise<{ ok: boolean }> {
+     const url = process.env.SMS_API_URL?.trim();
+     const apiKey = process.env.SMS_API_KEY?.trim();
+-    if (!url || !apiKey) throw new Error("Brak SMS_API_URL lub SMS_API_KEY.");
++    if (!url || !apiKey) {
++      throw new Error("Brak SMS_API_URL lub SMS_API_KEY.");
++    }
++
+     const response = await fetch(url, {
+       method: "POST",
+-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+-      body: JSON.stringify({ to: phone, message, from: process.env.SMS_FROM || "LicytujDobro" }),
++      headers: {
++        "Content-Type": "application/json",
++        Authorization: `Bearer ${apiKey}`,
++      },
++      body: JSON.stringify({
++        to: phone,
++        message,
++        from: process.env.SMS_FROM || "LicytujDobro",
++      }),
++    });
++
++    if (!response.ok) {
++      const details = (await response.text()).slice(0, 500);
++      throw new Error(`Dostawca SMS zwrócił HTTP ${response.status}: ${details}`);
++    }
++    return { ok: true };
++  }
++}
++
++class TwilioSmsProvider implements SmsProvider {
++  async send(phone: string, message: string): Promise<{ ok: boolean }> {
++    const accountSid = process.env.TWILIO_ACCOUNT_SID?.trim();
++    const authToken = process.env.TWILIO_AUTH_TOKEN?.trim();
++    const from = process.env.TWILIO_FROM?.trim() || process.env.SMS_FROM?.trim();
++
++    if (!accountSid || !authToken || !from) {
++      throw new Error(
++        "Brak TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN lub TWILIO_FROM.",
++      );
++    }
++
++    const body = new URLSearchParams({
++      To: phone,
++      From: from,
++      Body: message,
+     });
+-    if (!response.ok) throw new Error(`Dostawca SMS zwrócił HTTP ${response.status}.`);
++
++    const response = await fetch(
++      `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(
++        accountSid,
++      )}/Messages.json`,
++      {
++        method: "POST",
++        headers: {
++          "Content-Type": "application/x-www-form-urlencoded",
++          Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString(
++            "base64",
++          )}`,
++        },
++        body,
++      },
++    );
++
++    if (!response.ok) {
++      const details = (await response.text()).slice(0, 500);
++      throw new Error(`Twilio zwróciło HTTP ${response.status}: ${details}`);
++    }
+     return { ok: true };
+   }
+ }
+ 
+ export function getSmsProvider(): SmsProvider {
+-  const provider = process.env.SMS_PROVIDER || process.env.SMS_MODE || "dev";
+-  return provider === "dev" ? new DevSmsProvider() : new HttpSmsProvider();
++  const provider = (
++    process.env.SMS_PROVIDER ||
++    process.env.SMS_MODE ||
++    "dev"
++  ).toLowerCase();
++
++  if (provider === "dev") return new DevSmsProvider();
++  if (provider === "twilio") return new TwilioSmsProvider();
++  return new HttpSmsProvider();
+ }
+ 
+ export function isSmsDevMode() {
+-  const provider = process.env.SMS_PROVIDER || process.env.SMS_MODE || "dev";
++  const provider = (
++    process.env.SMS_PROVIDER ||
++    process.env.SMS_MODE ||
++    "dev"
++  ).toLowerCase();
+   return provider === "dev";
+ }
+ 

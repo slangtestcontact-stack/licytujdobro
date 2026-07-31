@@ -1,0 +1,6 @@
+"use client";
+import { useActionState } from "react";
+import { submitPilotFeedbackAction, type MiscResult } from "@/actions/misc";
+import { Alert, Button, Field, inputClass } from "@/components/ui";
+const initial: MiscResult={ok:false};
+export function PilotFeedbackForm(){const [state,action,pending]=useActionState(submitPilotFeedbackAction,initial);if(state.ok)return <Alert tone="success" title="Dziękujemy za test">Odpowiedzi zostały zapisane. Posłużą do poprawienia procesu przed startem publicznym.</Alert>;return <form action={action} className="grid gap-4"><Field label="Co było niejasne?" htmlFor="unclear" required><textarea id="unclear" name="unclear" minLength={2} required rows={3} className={inputClass}/></Field><Field label="Co trwało za długo?" htmlFor="tooSlow" required><textarea id="tooSlow" name="tooSlow" minLength={2} required rows={3} className={inputClass}/></Field><Field label="Czego brakowało?" htmlFor="missing" required><textarea id="missing" name="missing" minLength={2} required rows={3} className={inputClass}/></Field>{state.error&&<Alert tone="danger">{state.error}</Alert>}<Button type="submit" disabled={pending}>{pending?"Zapisywanie…":"Wyślij opinię z pilotażu"}</Button></form>}

@@ -1,0 +1,20 @@
+LicytujDobro 1.7.0 — raport walidacji
+
+Źródło bazowe:
+- src(1).zip przekazany przez użytkownika
+
+Wykonane w środowisku przygotowania patcha:
+- rozpakowanie i inspekcja aktualnego katalogu src;
+- sprawdzenie składni wszystkich 148 plików TS/TSX przez TypeScript transpileModule: 0 błędów składni;
+- sprawdzenie lokalnych importów nazwanych w zmienionych plikach: poprawne;
+- sprawdzenie składni scripts/migrate-1.7.mjs przez `node --check`: poprawne;
+- test wykonania funkcji progów przebicia, w tym własnego minimalnego przebicia: poprawny;
+- sprawdzenie, że migracja jest opakowana w transakcję i zachowuje rozpoczęte stare licytacje.
+
+Ograniczenie środowiska:
+- pełny `npm run typecheck`, testy Vitest i `next build` nie zostały wykonane w kontenerze, ponieważ zależności projektu nie były dostępne w lokalnym rejestrze pakietów.
+
+Zabezpieczenie po stronie użytkownika:
+- ZASTOSUJ_PATCH.ps1 uruchamia typecheck oraz test reguł przed migracją;
+- migracja jest transakcyjna;
+- przy błędzie skrypt przywraca katalog src z automatycznej kopii.
